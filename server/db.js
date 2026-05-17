@@ -146,3 +146,4 @@ tryExec('ALTER TABLE partnerships ADD COLUMN points INTEGER NOT NULL DEFAULT 100
 tryExec('ALTER TABLE play_sessions ADD COLUMN deadline_at TEXT')
 tryExec('ALTER TABLE play_sessions ADD COLUMN buzz_uid TEXT')
 tryExec('ALTER TABLE play_sessions ADD COLUMN buzz_wrong INTEGER NOT NULL DEFAULT 0')
+tryExec('ALTER TABLE play_sessions ADD COLUMN next_uid TEXT')

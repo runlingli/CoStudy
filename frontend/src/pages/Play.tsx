@@ -14,7 +14,7 @@ export default function Play() {
   const stoppedRef = useRef(false)
   const qCacheRef = useRef<Record<number, { q: any; reveal: any }>>({})
   const [prevView, setPrevView] = useState<number | null>(null)
-  const buzzerAutoRef = useRef(-1)
+
 
   // 本地秒表，每秒滴答（仅用于显示；服务器是权威的）
   useEffect(() => {
@@ -32,19 +32,6 @@ export default function Play() {
             q: d.question ?? prev.q,
             reveal: d.reveal ?? prev.reveal,
           }
-        }
-        // 抢答答对时自动跳下一题（双方各自触发，服务端幂等）
-        if (
-          d.mode === 'buzzer' &&
-          d.revealed &&
-          d.reveal &&
-          (d.reveal.firstCorrect || d.reveal.secondCorrect) &&
-          buzzerAutoRef.current !== d.curQ
-        ) {
-          buzzerAutoRef.current = d.curQ
-          setTimeout(() => {
-            api(`/play/${sid}/next`, {}).then(poll).catch(poll)
-          }, 600)
         }
         setSt(d)
         if (d.status === 'finished') stoppedRef.current = true
@@ -633,13 +620,16 @@ export default function Play() {
                 {reveal.explanation && (
                   <p className="pt-1 text-xs text-neutral-500">{reveal.explanation}</p>
                 )}
-                {/* 只在双方都答错时显示手动下一题按钮，答对走自动跳 */}
-                {!reveal.firstCorrect && !reveal.secondCorrect && (
+                {st.iConfirmedNext ? (
+                  <p className="mt-3 text-xs text-neutral-500">
+                    已确认，等 {st.peerName} 点击…
+                  </p>
+                ) : (
                   <button
                     onClick={nextQ}
                     className="mt-3 border border-neutral-800 bg-neutral-800 px-4 py-2 text-white"
                   >
-                    {st.curQ + 1 >= st.total ? '结算本关' : '下一题 →'}
+                    {st.curQ + 1 >= st.total ? '结算本关' : '进入下一题'}
                   </button>
                 )}
               </div>

@@ -297,6 +297,7 @@ playRouter.get('/play/:sid', auth, (req, res) => {
       firstChoice,
       myChoice: myAns?.choice ?? null,
       revealed: !!s.cur_revealed,
+      iConfirmedNext: !!(s.next_uid && s.next_uid === req.userId),
       reveal,
       peerName,
       peerOnline,
@@ -483,15 +484,28 @@ playRouter.post('/play/:sid/next', auth, (req, res) => {
   if (s.status !== 'playing' || !s.cur_revealed)
     return res.status(400).json({ error: '当前题尚未揭晓或已超时' })
   const full = fullQuestions(s.piece_id)
-  const nextQ = s.cur_q + 1
-  if (nextQ >= full.length) {
+
+  // 抢答模式：双方各自确认，两人都点了才推进
+  if (s.mode === 'buzzer') {
+    if (!s.next_uid) {
+      db.prepare('UPDATE play_sessions SET next_uid=? WHERE id=?').run(req.userId, s.id)
+      return res.json({ waiting: true })
+    }
+    if (s.next_uid === req.userId) {
+      return res.json({ waiting: true }) // 幂等：已确认，等搭档
+    }
+    // 两人都确认，继续往下推进
+  }
+
+  const nextIdx = s.cur_q + 1
+  if (nextIdx >= full.length) {
     const result = s.mode === 'buzzer' ? finalizeBuzzer(s, p) : finalizeAsymmetric(s, p)
     return res.json({ result })
   }
   db.prepare(
-    'UPDATE play_sessions SET cur_q=?, cur_revealed=0, buzz_uid=NULL, buzz_wrong=0 WHERE id=?',
-  ).run(nextQ, s.id)
-  res.json({ ok: true, curQ: nextQ })
+    'UPDATE play_sessions SET cur_q=?, cur_revealed=0, buzz_uid=NULL, buzz_wrong=0, next_uid=NULL WHERE id=?',
+  ).run(nextIdx, s.id)
+  res.json({ ok: true, curQ: nextIdx })
 })
 
 function scoreUser(sid, uid, total) {
