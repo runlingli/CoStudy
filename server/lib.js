@@ -55,7 +55,7 @@ export async function fetchSectionText(url) {
 // stub 出题（兜底）：题数按内容字数算（≈100 字/题，3~20 题）
 export function makeQuestions(componentTitle, contentText = '') {
   const len = (contentText || '').length
-  const count = Math.max(3, Math.min(20, Math.ceil(len / 100)))
+  const count = Math.max(4, Math.min(20, Math.ceil(len / 100)))
   return Array.from({ length: count }, (_, i) => ({
     stem: `关于「${componentTitle}」的第 ${i + 1} 题（占位，AI 未生成）`,
     options: ['选项 A', '选项 B', '选项 C', '选项 D'],
@@ -99,8 +99,10 @@ export async function generateQuestionsWithClaude(title, contentText, count) {
   if (!contentText || contentText.trim().length < 30) return null
   const prompt = `你是一个学习题出题助手。根据下面的"学习内容"，出 ${count} 道单选题。
 要求：
+- **题目顺序必须严格按原文顺序**：第 1 题考查正文最早的内容（开头/第一段），第 2 题往后推一段，依此类推；最后一题考查正文末尾。
+- **不要跳跃**：相邻两题在原文中应来自相邻或邻近段落，不要绕回前面，也不要大跨度跳到后面。把内容均匀切成 ${count} 份，每题对应一份。
 - 每题恰好 4 个选项；answer 是正确选项的下标（0-3 的整数）。
-- 题目必须真实考查该内容；不要编造内容里没有的东西；不要重复或凑数。
+- 题目必须真实考查内容里写到的东西，不要编造、不要重复、不要凑数。
 - 仅输出严格的 JSON 数组，不要 markdown 代码块、不要解释、不要前后文字。
 
 【小节标题】${title}
@@ -195,7 +197,7 @@ export async function ensureParsed(piece) {
   }
   if (piece.parse_status === 'pending') {
     const len = (piece.content_text || '').length
-    const count = Math.max(3, Math.min(20, Math.ceil(len / 100)))
+    const count = Math.max(4, Math.min(20, Math.ceil(len / 100)))
     let qs = await generateQuestionsWithClaude(
       piece.title,
       piece.content_text || '',

@@ -116,7 +116,7 @@ playRouter.get('/play/:sid', auth, (req, res) => {
   const r = rolesOf(p)
   const peerId = req.userId === p.user_a ? p.user_b : p.user_a
   const peerName = uname(peerId)
-  const canSeeContent = s.mode === 'co_choice' || role === 'narrator'
+  const canSeeContent = true // 两边都看得到原文
 
   if (s.status === 'finished')
     return res.json({
@@ -143,30 +143,55 @@ playRouter.get('/play/:sid', auth, (req, res) => {
   const total = full.length
 
   if (s.mode === 'asymmetric_choice') {
-    const q = full[s.cur_q]
-    const view =
-      role === 'narrator' ? { stem: q.stem } : { options: q.options }
-    const myAnsRow = db
-      .prepare(
-        'SELECT choice,correct FROM play_answers WHERE session_id=? AND user_id=? AND q_index=?',
+    // 一轮 = 4 题（最后一轮可能少）
+    const roundStart = s.cur_q
+    const roundSize = Math.min(4, total - roundStart)
+    const roundQs = full.slice(roundStart, roundStart + roundSize)
+    // 首次进入本轮时随机出一个乱序映射并落库
+    let shuffle = s.round_shuffle ? JSON.parse(s.round_shuffle) : null
+    if (!shuffle || shuffle.length !== roundSize) {
+      shuffle = Array.from({ length: roundSize }, (_, i) => i)
+      for (let i = shuffle.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1))
+        ;[shuffle[i], shuffle[j]] = [shuffle[j], shuffle[i]]
+      }
+      db.prepare('UPDATE play_sessions SET round_shuffle=? WHERE id=?').run(
+        JSON.stringify(shuffle),
+        s.id,
       )
-      .get(s.id, req.userId, s.cur_q)
+    }
+    // 我对本轮的已有作答（仅选择者）
+    const subs = db
+      .prepare(
+        'SELECT q_index, choice, correct FROM play_answers WHERE session_id=? AND user_id=? AND q_index >= ? AND q_index < ?',
+      )
+      .all(s.id, r.selector, roundStart, roundStart + roundSize)
+    const myMap = {}
+    for (const x of subs) myMap[x.q_index - roundStart] = x.choice
+
+    // 视图：A 看 4 题干（带编号 1..N）；B 看 4 答案（A/B/C/D 标签 + 文本）
+    const stems = roundQs.map((q, i) => ({ num: i + 1, stem: q.stem }))
+    const labeledAnswers = shuffle.map((qi, label) => ({
+      label, // 0..3
+      text: roundQs[qi].options[roundQs[qi].answer],
+    }))
+
     let reveal = null
     if (s.cur_revealed) {
-      const selRow = db
-        .prepare(
-          'SELECT choice,correct FROM play_answers WHERE session_id=? AND user_id=? AND q_index=?',
-        )
-        .get(s.id, r.selector, s.cur_q)
-      reveal = {
-        stem: q.stem,
-        options: q.options,
-        answer: q.answer,
-        selectorChoice: selRow?.choice ?? null,
-        passed: selRow?.correct === 1,
-        explanation: q.explanation || '',
-      }
+      reveal = roundQs.map((q, i) => {
+        const sub = subs.find((x) => x.q_index - roundStart === i)
+        const correctLabel = shuffle.indexOf(i) // 本题正确答案在 B 那边的标签位置
+        return {
+          num: i + 1,
+          stem: q.stem,
+          correctAnswer: q.options[q.answer],
+          correctLabel,
+          selectorGuessLabel: sub ? sub.choice : null, // B 实际选的标签
+          passed: sub?.correct === 1,
+        }
+      })
     }
+
     return res.json({
       status: 'playing',
       mode: s.mode,
@@ -175,14 +200,18 @@ playRouter.get('/play/:sid', auth, (req, res) => {
         id: piece.id,
         title: piece.title,
         material_id: piece.material_id,
-        source_url: canSeeContent ? piece.source_url || null : null,
-        content_text: canSeeContent ? piece.content_text || '' : null,
+        source_url: piece.source_url || null,
+        content_text: piece.content_text || '',
       },
-      curQ: s.cur_q,
+      roundStart,
+      roundSize,
       total,
+      totalRounds: Math.ceil(total / 4),
+      curRound: Math.floor(roundStart / 4) + 1,
       iAnswer: role === 'selector' && !s.cur_revealed,
-      question: view,
-      myChoice: myAnsRow?.choice ?? null,
+      stems, // 仅讲解者真正用
+      labeledAnswers, // 仅选择者真正用（前端按 role 渲染）
+      myMap, // 选择者已填的：questionIndex(0..N-1) → labelIndex
       revealed: !!s.cur_revealed,
       reveal,
       peerName,
@@ -225,26 +254,50 @@ playRouter.post('/play/:sid/answer', auth, (req, res) => {
   if (!p || s.partnership_id !== p.id)
     return res.status(403).json({ error: '无权访问' })
   const r = rolesOf(p)
-  const { qIndex, choice } = req.body || {}
   const full = fullQuestions(s.piece_id)
-  if (qIndex == null || qIndex < 0 || qIndex >= full.length || choice == null)
-    return res.status(400).json({ error: '参数错误' })
 
   if (s.mode === 'asymmetric_choice') {
     if (req.userId !== r.selector)
       return res.status(400).json({ error: '讲解者不作答' })
-    if (qIndex !== s.cur_q)
-      return res.status(400).json({ error: '请回答当前题' })
     if (s.cur_revealed)
-      return res.status(400).json({ error: '本题已揭晓' })
+      return res.status(400).json({ error: '本轮已揭晓' })
+    const { question, label } = req.body || {}
+    const roundStart = s.cur_q
+    const roundSize = Math.min(4, full.length - roundStart)
+    if (
+      !Number.isInteger(question) ||
+      question < 0 ||
+      question >= roundSize ||
+      !Number.isInteger(label) ||
+      label < 0 ||
+      label >= roundSize
+    )
+      return res.status(400).json({ error: '参数错误' })
+    const shuffle = s.round_shuffle ? JSON.parse(s.round_shuffle) : null
+    if (!shuffle) return res.status(400).json({ error: '本轮未初始化' })
+    const correct = shuffle[label] === question ? 1 : 0
+    db.prepare(
+      'INSERT OR REPLACE INTO play_answers(session_id,user_id,q_index,choice,correct) VALUES(?,?,?,?,?)',
+    ).run(s.id, req.userId, roundStart + question, label, correct)
+    // 本轮 4 题都填了 → 揭晓
+    const filled = db
+      .prepare(
+        'SELECT COUNT(*) n FROM play_answers WHERE session_id=? AND user_id=? AND q_index >= ? AND q_index < ?',
+      )
+      .get(s.id, req.userId, roundStart, roundStart + roundSize).n
+    if (filled >= roundSize)
+      db.prepare('UPDATE play_sessions SET cur_revealed=1 WHERE id=?').run(s.id)
+    return res.json({ ok: true })
   }
 
+  // co_choice：保持原行为
+  const { qIndex, choice } = req.body || {}
+  if (qIndex == null || qIndex < 0 || qIndex >= full.length || choice == null)
+    return res.status(400).json({ error: '参数错误' })
   const correct = full[qIndex].answer === choice ? 1 : 0
   db.prepare(
     'INSERT OR REPLACE INTO play_answers(session_id,user_id,q_index,choice,correct) VALUES(?,?,?,?,?)',
   ).run(s.id, req.userId, qIndex, choice, correct)
-  if (s.mode === 'asymmetric_choice')
-    db.prepare('UPDATE play_sessions SET cur_revealed=1 WHERE id=?').run(s.id)
   res.json({ ok: true })
 })
 
@@ -258,18 +311,18 @@ playRouter.post('/play/:sid/next', auth, (req, res) => {
   if (s.mode !== 'asymmetric_choice')
     return res.status(400).json({ error: '该玩法不需要逐题推进' })
   if (s.status !== 'playing' || !s.cur_revealed)
-    return res.status(400).json({ error: '当前题尚未揭晓' })
+    return res.status(400).json({ error: '本轮尚未揭晓' })
   const full = fullQuestions(s.piece_id)
-  const nextQ = s.cur_q + 1
-  if (nextQ >= full.length) {
+  const nextStart = s.cur_q + 4
+  if (nextStart >= full.length) {
     const result = finalizeAsymmetric(s, p)
     return res.json({ result })
   }
-  db.prepare('UPDATE play_sessions SET cur_q=?, cur_revealed=0 WHERE id=?').run(
-    nextQ,
-    s.id,
-  )
-  res.json({ ok: true, curQ: nextQ })
+  // 进入下一轮：清掉乱序与揭晓标记
+  db.prepare(
+    'UPDATE play_sessions SET cur_q=?, cur_revealed=0, round_shuffle=NULL WHERE id=?',
+  ).run(nextStart, s.id)
+  res.json({ ok: true, curQ: nextStart })
 })
 
 function scoreUser(sid, uid, total) {

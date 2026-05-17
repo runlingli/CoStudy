@@ -90,8 +90,9 @@ CREATE TABLE IF NOT EXISTS play_sessions (
   mode TEXT NOT NULL,              -- co_choice | asymmetric_choice
   status TEXT NOT NULL,            -- invited | playing | finished
   invited_by INTEGER NOT NULL,     -- 发起邀请的人
-  cur_q INTEGER NOT NULL DEFAULT 0,
+  cur_q INTEGER NOT NULL DEFAULT 0,        -- 不对称：本轮 4 题的起点（0,4,8,...）
   cur_revealed INTEGER NOT NULL DEFAULT 0,
+  round_shuffle TEXT,              -- 不对称：本轮 4 答案的乱序映射 (JSON array)
   result_json TEXT,
   created_at TEXT NOT NULL
 );
@@ -114,3 +115,10 @@ CREATE TABLE IF NOT EXISTS skip_requests (
   PRIMARY KEY (partnership_id, piece_id)
 );
 `)
+
+// 兼容旧 db：给已有表加新列（demo 级 migration）
+try {
+  db.exec('ALTER TABLE play_sessions ADD COLUMN round_shuffle TEXT')
+} catch {
+  /* 已有该列就跳过 */
+}

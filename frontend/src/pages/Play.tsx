@@ -8,7 +8,6 @@ export default function Play() {
   const { sid } = useParams()
   const nav = useNavigate()
   const [st, setSt] = useState<any>(null)
-  const [pick, setPick] = useState<number | null>(null)
   const [coPicks, setCoPicks] = useState<Record<number, number>>({})
   const [err, setErr] = useState('')
   const stoppedRef = useRef(false)
@@ -18,11 +17,6 @@ export default function Play() {
       .then((d) => {
         setSt(d)
         if (d.status === 'finished') stoppedRef.current = true
-        // 不对称：揭晓后切到下一题时清掉本地选择
-        if (d.status === 'playing' && d.mode === 'asymmetric_choice' && !d.revealed) {
-          if (d.myChoice == null) setPick(null)
-          else setPick(d.myChoice)
-        }
       })
       .catch((e) => setErr((e as Error).message))
   }, [sid])
@@ -54,20 +48,19 @@ export default function Play() {
     }
   }
 
-  async function submitAsym(choice: number) {
-    setPick(choice)
+  async function submitPair(question: number, label: number) {
+    setErr('')
     try {
-      await api(`/play/${sid}/answer`, { qIndex: st.curQ, choice })
+      await api(`/play/${sid}/answer`, { question, label })
       poll()
     } catch (e) {
       setErr((e as Error).message)
     }
   }
-  async function nextQ() {
+  async function nextRound() {
     setErr('')
     try {
       await api(`/play/${sid}/next`, {})
-      setPick(null)
       poll()
     } catch (e) {
       setErr((e as Error).message)
@@ -272,10 +265,14 @@ export default function Play() {
     </div>
   )
 
-  // ============ 进行中 · 不对称：一题一揭 ============
+  // ============ 进行中 · 不对称（轮制 4 配 4 匹配） ============
   if (st.mode === 'asymmetric_choice') {
-    const q = st.question || {}
-    const reveal = st.reveal
+    const stems: any[] = st.stems || []
+    const answers: any[] = st.labeledAnswers || []
+    const myMap: Record<number, number> = st.myMap || {}
+    const reveal: any[] | null = st.reveal
+    const isLastRound = (st.curRound || 0) >= (st.totalRounds || 1)
+    const LABELS = ['A', 'B', 'C', 'D']
     return (
       <div>
         <div className="mb-3 flex items-center justify-between">
@@ -283,78 +280,124 @@ export default function Play() {
           {headerRight}
         </div>
         <div className="mb-3 text-xs text-neutral-500">
-          第 {st.curQ + 1} / {st.total} 题
+          第 {st.curRound} / {st.totalRounds} 轮 · 本轮 {st.roundSize} 道题
         </div>
         <div className="grid gap-4 md:grid-cols-10">
           {sourcePanel}
-          <div className="md:col-span-3 border border-neutral-300 p-4 text-sm">
-            <div className="mb-3 text-xs text-neutral-500">
-              {st.role === 'narrator'
-                ? '题干（你能看；讲给搭档听）'
-                : '选项（你只能看到选项，听讲解后选）'}
-            </div>
-            {st.role === 'narrator' ? (
-              <div className="mb-3 text-base">{q.stem}</div>
-            ) : (
-              <div>
-                {(q.options || []).map((o: string, oi: number) => (
-                  <label key={oi} className="block py-1">
-                    <input
-                      type="radio"
-                      name="cur"
-                      className="mr-2"
-                      disabled={st.revealed}
-                      checked={pick === oi}
-                      onChange={() => submitAsym(oi)}
-                    />
-                    {o}
-                  </label>
-                ))}
-              </div>
+          <div className="md:col-span-3 space-y-3 border border-neutral-300 p-4 text-sm">
+            {/* 讲解者：4 个题干 */}
+            {st.role === 'narrator' && (
+              <>
+                <div className="text-xs text-neutral-500">
+                  你看到 {stems.length} 个题干（按原文顺序），逐个讲给搭档；
+                  TA 那边是 4 个打乱的答案。
+                </div>
+                <ul className="space-y-2">
+                  {stems.map((s: any) => (
+                    <li
+                      key={s.num}
+                      className="border border-neutral-200 p-2"
+                    >
+                      <div className="text-xs text-neutral-400">
+                        题目 {s.num}
+                      </div>
+                      <div>{s.stem}</div>
+                    </li>
+                  ))}
+                </ul>
+                {!reveal && (
+                  <p className="text-xs text-neutral-500">
+                    等搭档把 4 个答案都对上号…
+                  </p>
+                )}
+              </>
             )}
 
-            {reveal && (
-              <div className="mt-4 border-t border-neutral-200 pt-3">
-                <div
-                  className={
-                    reveal.passed
-                      ? 'mb-2 text-sm text-green-700'
-                      : 'mb-2 text-sm text-red-600'
-                  }
-                >
-                  {reveal.passed ? '你们配合答对了 ✓' : '答错了，下一题继续'}
+            {/* 选择者：4 个答案标签 + 题号下拉 */}
+            {st.role === 'selector' && (
+              <>
+                <div className="text-xs text-neutral-500">
+                  你看到 4 个答案（打乱）。听搭档读题，把每题对到正确答案标签上。
                 </div>
-                <div className="mb-1 text-xs text-neutral-500">题干 / 答案：</div>
-                <div className="mb-2 text-neutral-700">{reveal.stem}</div>
-                {reveal.options.map((o: string, oi: number) => (
-                  <div
-                    key={oi}
-                    className={
-                      oi === reveal.answer
-                        ? 'text-green-700'
-                        : oi === reveal.selectorChoice
-                        ? 'text-red-600'
-                        : 'text-neutral-600'
-                    }
-                  >
-                    {oi === reveal.answer ? '✓ ' : '　'}
-                    {o}
-                    {oi === reveal.selectorChoice ? ' ←选了' : ''}
-                  </div>
-                ))}
+                <div className="border border-neutral-200 p-2">
+                  <div className="mb-1 text-xs text-neutral-500">答案池：</div>
+                  {answers.map((a: any) => (
+                    <div key={a.label} className="py-0.5">
+                      <b>{LABELS[a.label]}.</b> {a.text}
+                    </div>
+                  ))}
+                </div>
+                <ul className="space-y-2">
+                  {Array.from({ length: st.roundSize }, (_, qi) => (
+                    <li
+                      key={qi}
+                      className="flex items-center justify-between border border-neutral-200 p-2"
+                    >
+                      <span>题目 {qi + 1}</span>
+                      <select
+                        disabled={!!reveal}
+                        value={myMap[qi] ?? ''}
+                        onChange={(e) =>
+                          submitPair(qi, Number(e.target.value))
+                        }
+                        className="border border-neutral-300 px-2 py-1"
+                      >
+                        <option value="" disabled>
+                          选答案…
+                        </option>
+                        {answers.map((a: any) => (
+                          <option key={a.label} value={a.label}>
+                            {LABELS[a.label]}
+                          </option>
+                        ))}
+                      </select>
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
+
+            {/* 揭晓 */}
+            {reveal && (
+              <div className="border-t border-neutral-200 pt-3">
+                <div className="mb-2 text-xs text-neutral-500">本轮揭晓：</div>
+                <ul className="space-y-2">
+                  {reveal.map((r: any) => (
+                    <li
+                      key={r.num}
+                      className={
+                        'border p-2 ' +
+                        (r.passed
+                          ? 'border-green-300 bg-green-50'
+                          : 'border-red-300 bg-red-50')
+                      }
+                    >
+                      <div className="text-xs text-neutral-500">
+                        题目 {r.num} {r.passed ? '✓' : '✗'}
+                      </div>
+                      <div className="mb-1">{r.stem}</div>
+                      <div>
+                        正确答案：<b>{r.correctAnswer}</b>{' '}
+                        <span className="text-xs text-neutral-500">
+                          （标签 {LABELS[r.correctLabel]}）
+                        </span>
+                      </div>
+                      {r.selectorGuessLabel != null &&
+                        r.selectorGuessLabel !== r.correctLabel && (
+                          <div className="text-xs text-red-600">
+                            选的是标签 {LABELS[r.selectorGuessLabel]}
+                          </div>
+                        )}
+                    </li>
+                  ))}
+                </ul>
                 <button
-                  onClick={nextQ}
+                  onClick={nextRound}
                   className="mt-3 border border-neutral-800 bg-neutral-800 px-4 py-2 text-white"
                 >
-                  {st.curQ + 1 >= st.total ? '结算' : '下一题 →'}
+                  {isLastRound ? '结算本关' : '下一轮 →'}
                 </button>
               </div>
-            )}
-
-            {!reveal && st.role === 'narrator' && (
-              <p className="mt-3 text-xs text-neutral-500">
-                等选择者作答…讲清楚一点 :)
-              </p>
             )}
           </div>
         </div>
