@@ -666,7 +666,7 @@ app.listen(PORT, '0.0.0.0', () => {
     .flat()
     .filter((n) => n && n.family === 'IPv4' && !n.internal)
     .map((n) => n.address)
-  console.log(`\nCoStudy server running (db: server/data/costudy.db)`)
+  console.log(`\nCoStudy server running (db: ${process.env.COSTUDY_DB || 'server/data/costudy.db'})`)
   console.log(`  Local:    http://localhost:${PORT}`)
   ips.forEach((ip) => console.log(`  Network:  http://${ip}:${PORT}`))
   console.log()

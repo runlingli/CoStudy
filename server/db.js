@@ -4,10 +4,12 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const here = dirname(fileURLToPath(import.meta.url))
-const dataDir = join(here, 'data')
-mkdirSync(dataDir, { recursive: true })
+// 真实 db 默认在 server/data/costudy.db；测试时设 COSTUDY_DB 指到别处
+const dbPath =
+  process.env.COSTUDY_DB || join(here, 'data', 'costudy.db')
+mkdirSync(dirname(dbPath), { recursive: true })
 
-export const db = new DatabaseSync(join(dataDir, 'costudy.db'))
+export const db = new DatabaseSync(dbPath)
 
 db.exec(`
 CREATE TABLE IF NOT EXISTS users (
