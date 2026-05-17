@@ -24,29 +24,19 @@ export default function Play() {
   const poll = useCallback(() => {
     api(`/play/${sid}`)
       .then((d) => {
+        if (d.mode === 'asymmetric_choice' && d.curQ != null) {
+          const idx = d.curQ
+          const prev = qCacheRef.current[idx] || { q: null, reveal: null }
+          qCacheRef.current[idx] = {
+            q: d.question ?? prev.q,
+            reveal: d.reveal ?? prev.reveal,
+          }
+        }
         setSt(d)
         if (d.status === 'finished') stoppedRef.current = true
       })
       .catch((e) => setErr((e as Error).message))
   }, [sid])
-
-  useEffect(() => {
-    poll()
-    const t = setInterval(() => {
-      if (!stoppedRef.current) poll()
-    }, 1500)
-    return () => clearInterval(t)
-  }, [poll])
-
-  useEffect(() => {
-    if (!st || st.mode !== 'asymmetric_choice') return
-    const idx = st.curQ
-    const prev = qCacheRef.current[idx] || { q: null, reveal: null }
-    qCacheRef.current[idx] = {
-      q: st.question ?? prev.q,
-      reveal: st.reveal ?? prev.reveal,
-    }
-  }, [st])
 
   async function accept() {
     setErr('')
@@ -334,8 +324,8 @@ export default function Play() {
     const isHistory = prevView !== null
     const displayIdx = isHistory ? prevView! : st.curQ
     const cached = isHistory ? qCacheRef.current[prevView!] : null
-    const q = cached?.q || st.question || {}
-    const reveal = cached?.reveal ?? st.reveal
+    const q = (cached?.q != null) ? cached.q : (st.question || {})
+    const reveal = (cached?.reveal != null) ? cached.reveal : st.reveal
     const LABELS = ['A', 'B', 'C', 'D']
     return (
       <div>
