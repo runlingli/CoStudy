@@ -557,9 +557,24 @@ app.get('/api/materials/:id', auth, (req, res) => {
           'SELECT requester_id FROM skip_requests WHERE partnership_id=? AND piece_id=?',
         )
         .get(p.id, pc.id)
+      // 历史进度：本对搭档在本节"曾经答过几道独立题"
+      const totalQ = db
+        .prepare('SELECT COUNT(*) n FROM questions WHERE piece_id=?')
+        .get(pc.id).n
+      const attempted = db
+        .prepare(
+          `SELECT COUNT(DISTINCT a.q_index) AS n FROM play_answers a
+             JOIN play_sessions s ON s.id = a.session_id
+            WHERE s.partnership_id=? AND s.piece_id=?`,
+        )
+        .get(p.id, pc.id).n
       return {
         ...pc,
         state: pr?.state || 'locked',
+        progress:
+          totalQ > 0 && attempted > 0
+            ? { attempted, total: totalQ }
+            : null,
         pending_invite: invited
           ? {
               session_id: invited.id,
@@ -816,14 +831,12 @@ app.post('/api/jump/:reqId/approve', auth, (req, res) => {
   }
   if (getPoints(p.id) < jr.cost)
     return res.status(400).json({ error: '积分不够，申请失效' })
-  // 扣分；把目标以及它之前所有还 locked 的节都解锁
+  // 扣分；只解锁目标节，中间的节继续保持 locked
   addPoints(p.id, -jr.cost)
   db.prepare(
     `UPDATE progress SET state='available', updated_at=?
-       WHERE partnership_id=? AND state='locked' AND piece_id IN (
-         SELECT id FROM pieces WHERE material_id=? AND seq <= ?
-       )`,
-  ).run(now(), p.id, target.material_id, target.seq)
+       WHERE partnership_id=? AND state='locked' AND piece_id=?`,
+  ).run(now(), p.id, target.id)
   db.prepare('DELETE FROM jump_requests WHERE id=?').run(jr.id)
   res.json({ ok: true, remainingPoints: getPoints(p.id) })
 })

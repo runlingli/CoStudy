@@ -218,16 +218,39 @@ export default function Material() {
                   >
                     <div className="flex items-center justify-between gap-2">
                       <div className="min-w-0">
-                        <span className="text-neutral-400">{pc.seq}.</span>{' '}
-                        {pc.title}
-                        <span className="ml-2 text-xs text-neutral-400">
-                          [{stateLabel(pc.state)}]
-                        </span>
-                        {pc.parse_status === 'parsing' && (
-                          <span className="ml-1 text-xs text-amber-700">
-                            · AI 出题中…
+                        <div>
+                          <span className="text-neutral-400">{pc.seq}.</span>{' '}
+                          {pc.title}
+                          <span className="ml-2 text-xs text-neutral-400">
+                            [{stateLabel(pc.state)}]
                           </span>
-                        )}
+                          {pc.parse_status === 'parsing' && (
+                            <span className="ml-1 text-xs text-amber-700">
+                              · AI 出题中…
+                            </span>
+                          )}
+                        </div>
+                        {pc.progress &&
+                          pc.state !== 'skipped' &&
+                          pc.state !== 'done' && (
+                            <div className="mt-1 flex items-center gap-2 text-xs text-neutral-500">
+                              <div className="h-1.5 w-32 overflow-hidden rounded bg-neutral-200">
+                                <div
+                                  className="h-full bg-amber-500"
+                                  style={{
+                                    width: `${Math.round(
+                                      (pc.progress.attempted /
+                                        pc.progress.total) *
+                                        100,
+                                    )}%`,
+                                  }}
+                                />
+                              </div>
+                              <span>
+                                {pc.progress.attempted}/{pc.progress.total}
+                              </span>
+                            </div>
+                          )}
                       </div>
                       <div className="flex shrink-0 gap-2">
                         {locked ? (
