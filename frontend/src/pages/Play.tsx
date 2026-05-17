@@ -602,10 +602,16 @@ export default function Play() {
                   )
                 }
                 // 未揭晓：可点击按钮
+                // 三种情况不让点：① 正在提交 ② 我已抢答且答错（用完唯一一次）
+                // ③ 搭档已抢但还没揭晓（轮到 TA 答，我别插队）
+                const lockedOut =
+                  buzzerPending !== null ||
+                  (st.iAmBuzzer && st.buzzWrong) ||
+                  (st.buzzUid && !st.iAmBuzzer && !st.buzzWrong)
                 return (
                   <button
                     key={oi}
-                    disabled={buzzerPending !== null}
+                    disabled={lockedOut}
                     onClick={() => submitBuzz(oi)}
                     className={`w-full border px-3 py-2 text-left hover:opacity-80 disabled:cursor-not-allowed disabled:opacity-50 ${optionClass(oi)}`}
                   >
