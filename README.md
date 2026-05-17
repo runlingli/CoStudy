@@ -7,7 +7,7 @@
 
 - `frontend/` — React + TS + Tailwind 前端
 - `server/`   — Express + 内置 `node:sqlite` 后端；数据库文件 `server/data/costudy.db`
-- `docs/`     — 规划文档（PLAN / PLAN-DESIGN / PAGES）
+- `docs/`     — **新人先看 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)**（实际架构），其余 PLAN / PLAN-DESIGN / PAGES 是愿景规划
 
 ## 运行（单端口，局域网可访问）
 
