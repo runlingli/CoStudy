@@ -443,25 +443,44 @@ export default function Play() {
         {sourcePanel}
         <div className="md:col-span-3 max-h-[80vh] overflow-auto border border-neutral-300 p-3">
           <ul className="space-y-3">
-            {qs.map((q, i) => (
-              <li key={i} className="border border-neutral-200 p-3 text-sm">
-                <div className="mb-2">
-                  {i + 1}. {q.stem}
-                </div>
-                {q.options.map((o: string, oi: number) => (
-                  <label key={oi} className="block py-0.5">
-                    <input
-                      type="radio"
-                      className="mr-2"
-                      name={`q${i}`}
-                      checked={coPicks[i] === oi}
-                      onChange={() => answerCo(i, oi)}
-                    />
-                    {o}
-                  </label>
-                ))}
-              </li>
-            ))}
+            {qs.map((q, i) => {
+              const peerWrong = st.peerWrongs?.[i] // 搭档在这题选错的那个选项
+              return (
+                <li key={i} className="border border-neutral-200 p-3 text-sm">
+                  <div className="mb-2">
+                    {i + 1}. {q.stem}
+                  </div>
+                  {q.options.map((o: string, oi: number) => {
+                    const eliminated = peerWrong === oi
+                    return (
+                      <label
+                        key={oi}
+                        className={
+                          'block py-0.5 ' +
+                          (eliminated
+                            ? 'text-neutral-400 line-through'
+                            : '')
+                        }
+                        title={
+                          eliminated
+                            ? `搭档已经在这题选错了 ${'ABCD'[oi]}，帮你排除掉了`
+                            : undefined
+                        }
+                      >
+                        <input
+                          type="radio"
+                          className="mr-2"
+                          name={`q${i}`}
+                          checked={coPicks[i] === oi}
+                          onChange={() => answerCo(i, oi)}
+                        />
+                        {o}
+                      </label>
+                    )
+                  })}
+                </li>
+              )
+            })}
           </ul>
           <button
             disabled={!canFinish}

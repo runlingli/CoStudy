@@ -260,6 +260,14 @@ playRouter.get('/play/:sid', auth, (req, res) => {
   const peerCount = db
     .prepare('SELECT COUNT(*) n FROM play_answers WHERE session_id=? AND user_id=?')
     .get(s.id, peerId).n
+  // 搭档已经答错的题 → 把那个错误选项告诉我（划掉它）。正确选项不能露馅。
+  const peerWrongRows = db
+    .prepare(
+      'SELECT q_index, choice FROM play_answers WHERE session_id=? AND user_id=? AND correct=0',
+    )
+    .all(s.id, peerId)
+  const peerWrongs = {}
+  for (const row of peerWrongRows) peerWrongs[row.q_index] = row.choice
   res.json({
     status: 'playing',
     mode: s.mode,
@@ -275,6 +283,7 @@ playRouter.get('/play/:sid', auth, (req, res) => {
     questions: full.map((q) => ({ stem: q.stem, options: q.options })),
     myAnswered: mine,
     peerAnsweredCount: peerCount,
+    peerWrongs,
     peerName,
     peerOnline,
     peerLastSeenSec,

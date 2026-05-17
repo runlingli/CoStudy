@@ -478,6 +478,41 @@ app.get('/api/materials/:id', auth, (req, res) => {
           "SELECT id, invited_by, mode FROM play_sessions WHERE partnership_id=? AND piece_id=? AND status='invited' ORDER BY id DESC LIMIT 1",
         )
         .get(p.id, pc.id)
+      // 是否有"进行中"的对局可以续上（双方答完前任一方退出都能回来）
+      const playing = db
+        .prepare(
+          "SELECT id, mode, deadline_at FROM play_sessions WHERE partnership_id=? AND piece_id=? AND status='playing' ORDER BY id DESC LIMIT 1",
+        )
+        .get(p.id, pc.id)
+      let resume = null
+      if (playing) {
+        const dl = playing.deadline_at
+          ? new Date(playing.deadline_at).getTime()
+          : null
+        if (!dl || dl > Date.now()) {
+          const totalQ = db
+            .prepare('SELECT COUNT(*) n FROM questions WHERE piece_id=?')
+            .get(pc.id).n
+          const peerId = req.userId === p.user_a ? p.user_b : p.user_a
+          const mineDone = db
+            .prepare(
+              'SELECT COUNT(DISTINCT q_index) n FROM play_answers WHERE session_id=? AND user_id=?',
+            )
+            .get(playing.id, req.userId).n
+          const peerDone = db
+            .prepare(
+              'SELECT COUNT(DISTINCT q_index) n FROM play_answers WHERE session_id=? AND user_id=?',
+            )
+            .get(playing.id, peerId).n
+          resume = {
+            session_id: playing.id,
+            mode: playing.mode,
+            total: totalQ,
+            mine_done: mineDone,
+            peer_done: peerDone,
+          }
+        }
+      }
       const skip = db
         .prepare(
           'SELECT requester_id FROM skip_requests WHERE partnership_id=? AND piece_id=?',
@@ -500,6 +535,7 @@ app.get('/api/materials/:id', auth, (req, res) => {
               from_me: skip.requester_id === req.userId,
             }
           : null,
+        pending_resume: resume,
       }
     })
   const grouped = chunks.map((c) => ({

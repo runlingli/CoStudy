@@ -273,6 +273,25 @@ export default function Material() {
                       </div>
                     </div>
 
+                    {/* 进行中可续上 */}
+                    {pc.pending_resume && !pc.pending_invite && (
+                      <Link
+                        to={`/play/${pc.pending_resume.session_id}`}
+                        className="mt-2 flex items-center justify-between gap-2 border border-blue-300 bg-blue-50 px-3 py-2 text-xs hover:bg-blue-100"
+                      >
+                        <span>
+                          ⏯ 对局进行中（{modeLabel(pc.pending_resume.mode)}）
+                          ：我 {pc.pending_resume.mine_done}/
+                          {pc.pending_resume.total} · 搭档{' '}
+                          {pc.pending_resume.peer_done}/
+                          {pc.pending_resume.total}
+                        </span>
+                        <span className="text-blue-700 underline">
+                          继续 →
+                        </span>
+                      </Link>
+                    )}
+
                     {/* 待办行：邀请 / 跳过 */}
                     {pc.pending_invite && (
                       <div className="mt-2 flex items-center justify-between gap-2 border border-amber-300 bg-amber-50 px-3 py-2 text-xs">
