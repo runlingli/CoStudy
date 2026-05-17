@@ -692,7 +692,7 @@ function currentAvailableSeq(partnershipId, materialId) {
   )
 }
 
-// 申请快进到某节
+// 申请快进到某节（目标必须是 locked；批准后 T 之前所有 locked 的也一并解锁）
 app.post('/api/jump/request', auth, (req, res) => {
   const p = myPartnership(req.userId)
   if (!p || p.status !== 'active')
@@ -700,11 +700,11 @@ app.post('/api/jump/request', auth, (req, res) => {
   const { targetPieceId } = req.body || {}
   const target = db.prepare('SELECT * FROM pieces WHERE id=?').get(targetPieceId)
   if (!target) return res.status(404).json({ error: '目标节不存在' })
-  const curSeq = currentAvailableSeq(p.id, target.material_id)
-  if (curSeq == null)
-    return res.status(400).json({ error: '本资料没有可学习的节，无需快进' })
-  if (target.seq <= curSeq)
-    return res.status(400).json({ error: '只能向后跳到尚未解锁的节' })
+  const tgtState = db
+    .prepare('SELECT state FROM progress WHERE partnership_id=? AND piece_id=?')
+    .get(p.id, target.id)?.state
+  if (tgtState !== 'locked')
+    return res.status(400).json({ error: '只能跳到尚未解锁的节' })
   const cost = JUMP_FLAT_COST
   if (getPoints(p.id) < cost)
     return res.status(400).json({ error: `积分不够：需要 ${cost} 分` })
@@ -732,25 +732,23 @@ app.post('/api/jump/:reqId/approve', auth, (req, res) => {
   const target = db
     .prepare('SELECT * FROM pieces WHERE id=?')
     .get(jr.target_piece_id)
-  const curSeq = currentAvailableSeq(p.id, target.material_id)
-  if (curSeq == null || target.seq <= curSeq) {
+  const tgtState = db
+    .prepare('SELECT state FROM progress WHERE partnership_id=? AND piece_id=?')
+    .get(p.id, target.id)?.state
+  if (tgtState !== 'locked') {
     db.prepare('DELETE FROM jump_requests WHERE id=?').run(jr.id)
-    return res.status(400).json({ error: '当前进度已变，申请失效' })
+    return res.status(400).json({ error: '目标已解锁，申请失效' })
   }
   if (getPoints(p.id) < jr.cost)
     return res.status(400).json({ error: '积分不够，申请失效' })
-  // 扣分；把中间节标 skipped；目标节 available
+  // 扣分；把目标以及它之前所有还 locked 的节都解锁
   addPoints(p.id, -jr.cost)
   db.prepare(
-    `UPDATE progress SET state='skipped', updated_at=?
-       WHERE partnership_id=? AND piece_id IN (
-         SELECT id FROM pieces WHERE material_id=? AND seq >= ? AND seq < ?
-       )`,
-  ).run(now(), p.id, target.material_id, curSeq, target.seq)
-  db.prepare(
     `UPDATE progress SET state='available', updated_at=?
-       WHERE partnership_id=? AND piece_id=?`,
-  ).run(now(), p.id, target.id)
+       WHERE partnership_id=? AND state='locked' AND piece_id IN (
+         SELECT id FROM pieces WHERE material_id=? AND seq <= ?
+       )`,
+  ).run(now(), p.id, target.material_id, target.seq)
   db.prepare('DELETE FROM jump_requests WHERE id=?').run(jr.id)
   res.json({ ok: true, remainingPoints: getPoints(p.id) })
 })
