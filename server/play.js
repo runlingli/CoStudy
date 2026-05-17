@@ -109,6 +109,9 @@ playRouter.post('/pieces/:id/play', auth, async (req, res, next) => {
   }
 })
 
+// 每道题预算 60 秒；accept 时按总题数算出本局总倒计时
+const SECONDS_PER_QUESTION = 60
+
 // ============ B 接受邀请 → playing ============
 playRouter.post('/play/:sid/accept', auth, (req, res) => {
   const s = db.prepare('SELECT * FROM play_sessions WHERE id=?').get(req.params.sid)
@@ -120,7 +123,12 @@ playRouter.post('/play/:sid/accept', auth, (req, res) => {
     return res.status(400).json({ error: '对局状态不可接受' })
   if (s.invited_by === req.userId)
     return res.status(400).json({ error: '邀请发起方无需接受，等对方' })
-  db.prepare("UPDATE play_sessions SET status='playing' WHERE id=?").run(s.id)
+  // 进 playing 时定截止时间
+  const full = fullQuestions(s.piece_id)
+  const deadlineMs = Date.now() + full.length * SECONDS_PER_QUESTION * 1000
+  db.prepare(
+    "UPDATE play_sessions SET status='playing', deadline_at=? WHERE id=?",
+  ).run(new Date(deadlineMs).toISOString(), s.id)
   res.json({ ok: true })
 })
 
@@ -142,7 +150,7 @@ const PRESENCE_WINDOW_MS = 8000
 
 // ============ 对局状态（轮询，按角色裁剪） ============
 playRouter.get('/play/:sid', auth, (req, res) => {
-  const s = db.prepare('SELECT * FROM play_sessions WHERE id=?').get(req.params.sid)
+  let s = db.prepare('SELECT * FROM play_sessions WHERE id=?').get(req.params.sid)
   if (!s) return res.status(404).json({ error: '对局不存在' })
   const p = myPartnership(req.userId)
   if (!p || s.partnership_id !== p.id)
@@ -151,6 +159,8 @@ playRouter.get('/play/:sid', auth, (req, res) => {
   db.prepare(
     'INSERT OR REPLACE INTO session_presence(session_id,user_id,last_seen) VALUES(?,?,?)',
   ).run(s.id, req.userId, now())
+  // 超时自动结算
+  s = autoFinalizeIfTimedOut(s, p)
   const role = roleFor(s, p, req.userId)
   const piece = db
     .prepare('SELECT id,title,material_id,content_text,source_url FROM pieces WHERE id=?')
@@ -189,6 +199,7 @@ playRouter.get('/play/:sid', auth, (req, res) => {
       peerName,
       peerOnline,
       peerLastSeenSec,
+      deadline_at: s.deadline_at || null,
     })
 
   // playing
@@ -237,6 +248,7 @@ playRouter.get('/play/:sid', auth, (req, res) => {
       peerName,
       peerOnline,
       peerLastSeenSec,
+      deadline_at: s.deadline_at || null,
     })
   }
 
@@ -266,17 +278,20 @@ playRouter.get('/play/:sid', auth, (req, res) => {
     peerName,
     peerOnline,
     peerLastSeenSec,
+    deadline_at: s.deadline_at || null,
   })
 })
 
 // ============ 作答 ============
 playRouter.post('/play/:sid/answer', auth, (req, res) => {
-  const s = db.prepare('SELECT * FROM play_sessions WHERE id=?').get(req.params.sid)
-  if (!s || s.status !== 'playing')
-    return res.status(400).json({ error: '对局不可作答' })
+  let s = db.prepare('SELECT * FROM play_sessions WHERE id=?').get(req.params.sid)
+  if (!s) return res.status(404).json({ error: '对局不存在' })
   const p = myPartnership(req.userId)
   if (!p || s.partnership_id !== p.id)
     return res.status(403).json({ error: '无权访问' })
+  s = autoFinalizeIfTimedOut(s, p)
+  if (s.status !== 'playing')
+    return res.status(400).json({ error: '对局不可作答（可能已超时或结束）' })
   const r = rolesOf(p)
   const full = fullQuestions(s.piece_id)
 
@@ -311,15 +326,16 @@ playRouter.post('/play/:sid/answer', auth, (req, res) => {
 
 // ============ 下一题（不对称专用） ============
 playRouter.post('/play/:sid/next', auth, (req, res) => {
-  const s = db.prepare('SELECT * FROM play_sessions WHERE id=?').get(req.params.sid)
+  let s = db.prepare('SELECT * FROM play_sessions WHERE id=?').get(req.params.sid)
   if (!s) return res.status(404).json({ error: '对局不存在' })
   const p = myPartnership(req.userId)
   if (!p || s.partnership_id !== p.id)
     return res.status(403).json({ error: '无权访问' })
+  s = autoFinalizeIfTimedOut(s, p)
   if (s.mode !== 'asymmetric_choice')
     return res.status(400).json({ error: '该玩法不需要逐题推进' })
   if (s.status !== 'playing' || !s.cur_revealed)
-    return res.status(400).json({ error: '当前题尚未揭晓' })
+    return res.status(400).json({ error: '当前题尚未揭晓或已超时' })
   const full = fullQuestions(s.piece_id)
   const nextQ = s.cur_q + 1
   if (nextQ >= full.length) {
@@ -386,13 +402,62 @@ function finalizeAsymmetric(s, p) {
   return result
 }
 
+// 超时自动结算：到点后任意一次 GET / 动作都会触发这里
+function autoFinalizeIfTimedOut(s, p) {
+  if (s.status !== 'playing' || !s.deadline_at) return s
+  if (new Date(s.deadline_at).getTime() > Date.now()) return s
+  const r = rolesOf(p)
+  const full = fullQuestions(s.piece_id)
+  const total = full.length
+  let result
+  if (s.mode === 'asymmetric_choice') {
+    const nar = scoreUser(s.id, r.narrator, total)
+    result = {
+      mode: s.mode,
+      total,
+      cooperative: true,
+      passed: nar.correct,
+      pct: total ? Math.round((nar.correct / total) * 100) : 0,
+      grade: 'C',
+      timedOut: true,
+      message: `时间到，本关失败 · 已答对 ${nar.correct}/${total}`,
+      reveal: buildReveal(s.id, full),
+    }
+  } else {
+    const a = scoreUser(s.id, p.user_a, total)
+    const b = scoreUser(s.id, p.user_b, total)
+    result = {
+      mode: s.mode,
+      total,
+      timedOut: true,
+      players: [
+        { name: uname(p.user_a), correct: a.correct, pct: a.pct },
+        { name: uname(p.user_b), correct: b.correct, pct: b.pct },
+      ],
+      avg: Math.round((a.pct + b.pct) / 2),
+      gap: Math.abs(a.pct - b.pct),
+      byAvg: 'C',
+      capByGap: 'C',
+      grade: 'C',
+      message: '时间到，本关失败',
+      reveal: buildReveal(s.id, full),
+    }
+  }
+  // 失败：不解锁下一节、不奖励积分
+  db.prepare(
+    "UPDATE play_sessions SET status='finished', result_json=? WHERE id=?",
+  ).run(JSON.stringify(result), s.id)
+  return db.prepare('SELECT * FROM play_sessions WHERE id=?').get(s.id)
+}
+
 // ============ 结算（co_choice 专用） ============
 playRouter.post('/play/:sid/finish', auth, (req, res) => {
-  const s = db.prepare('SELECT * FROM play_sessions WHERE id=?').get(req.params.sid)
+  let s = db.prepare('SELECT * FROM play_sessions WHERE id=?').get(req.params.sid)
   if (!s) return res.status(404).json({ error: '对局不存在' })
   const p = myPartnership(req.userId)
   if (!p || s.partnership_id !== p.id)
     return res.status(403).json({ error: '无权访问' })
+  s = autoFinalizeIfTimedOut(s, p)
   if (s.status === 'finished')
     return res.json({ result: JSON.parse(s.result_json) })
   if (s.mode !== 'co_choice')

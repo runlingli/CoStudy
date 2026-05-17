@@ -10,7 +10,14 @@ export default function Play() {
   const [st, setSt] = useState<any>(null)
   const [coPicks, setCoPicks] = useState<Record<number, number>>({})
   const [err, setErr] = useState('')
+  const [nowMs, setNowMs] = useState(Date.now())
   const stoppedRef = useRef(false)
+
+  // 本地秒表，每秒滴答（仅用于显示；服务器是权威的）
+  useEffect(() => {
+    const t = setInterval(() => setNowMs(Date.now()), 1000)
+    return () => clearInterval(t)
+  }, [])
 
   const poll = useCallback(() => {
     api(`/play/${sid}`)
@@ -100,12 +107,28 @@ export default function Play() {
         ——等 TA 回来再继续；要走的话直接点顶部回首页。
       </div>
     ) : null
+  // 倒计时（仅 playing 时有意义）
+  const deadlineMs = st.deadline_at ? new Date(st.deadline_at).getTime() : 0
+  const secondsLeft = Math.max(0, Math.floor((deadlineMs - nowMs) / 1000))
+  const mm = String(Math.floor(secondsLeft / 60)).padStart(2, '0')
+  const ss = String(secondsLeft % 60).padStart(2, '0')
+  const timerCls =
+    secondsLeft <= 30
+      ? 'text-red-600 font-semibold'
+      : secondsLeft <= 60
+      ? 'text-amber-700'
+      : 'text-neutral-600'
   const headerRight = (
-    <span className="text-xs text-neutral-500">
-      {st.mode === 'co_choice'
-        ? '共答选择题'
-        : `不对称 · 你是${st.role === 'narrator' ? '讲解者' : '选择者'}`}
-    </span>
+    <div className="flex items-center gap-3 text-xs">
+      {st.status === 'playing' && deadlineMs > 0 && (
+        <span className={timerCls}>⏱ {mm}:{ss}</span>
+      )}
+      <span className="text-neutral-500">
+        {st.mode === 'co_choice'
+          ? '共答选择题'
+          : `不对称 · 你是${st.role === 'narrator' ? '讲解者' : '选择者'}`}
+      </span>
+    </div>
   )
 
   // ============ 结算 ============
@@ -114,8 +137,22 @@ export default function Play() {
     const mid = st.piece?.material_id
     return (
       <div>
-        <h2 className="text-base font-semibold">本关结算 · {st.piece?.title}</h2>
-        <div className="mt-3 border border-neutral-800 p-5 text-center">
+        <h2 className="text-base font-semibold">
+          本关结算 · {st.piece?.title}
+          {r.timedOut && (
+            <span className="ml-2 text-sm text-red-600">⏱ 时间到 · 失败</span>
+          )}
+        </h2>
+        <div
+          className={
+            'mt-3 border p-5 text-center ' +
+            (r.timedOut
+              ? 'border-red-400 bg-red-50'
+              : r.abandoned
+              ? 'border-neutral-400 bg-neutral-50'
+              : 'border-neutral-800')
+          }
+        >
           <div className="text-5xl font-bold">{r.grade}</div>
           {r.mode === 'co_choice' ? (
             <div className="mt-3 text-sm">

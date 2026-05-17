@@ -143,3 +143,4 @@ function tryExec(sql) {
 }
 tryExec('ALTER TABLE play_sessions ADD COLUMN round_shuffle TEXT')
 tryExec('ALTER TABLE partnerships ADD COLUMN points INTEGER NOT NULL DEFAULT 1000')
+tryExec('ALTER TABLE play_sessions ADD COLUMN deadline_at TEXT')
