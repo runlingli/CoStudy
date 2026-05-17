@@ -54,13 +54,47 @@ playRouter.post('/pieces/:id/play', auth, async (req, res, next) => {
 
     await ensureParsed(piece) // 邀请时就把这一节解析好（更快开场）
 
-    // 复用同 piece 的进行中对局
+    // 复用：① 同 piece + 同玩法 + 还在 invited 阶段的，幂等返回
     let s = db
       .prepare(
-        "SELECT * FROM play_sessions WHERE partnership_id=? AND piece_id=? AND status IN ('invited','playing') ORDER BY id DESC LIMIT 1",
+        "SELECT * FROM play_sessions WHERE partnership_id=? AND piece_id=? AND mode=? AND status='invited' ORDER BY id DESC LIMIT 1",
       )
-      .get(p.id, piece.id)
-    if (s && s.mode !== mode) s = null
+      .get(p.id, piece.id, mode)
+    // ② 若有 playing 会话：只在双方最近都还在线时复用；否则视为废弃
+    if (!s) {
+      const playing = db
+        .prepare(
+          "SELECT * FROM play_sessions WHERE partnership_id=? AND piece_id=? AND mode=? AND status='playing' ORDER BY id DESC LIMIT 1",
+        )
+        .get(p.id, piece.id, mode)
+      if (playing) {
+        const STALE_MS = 30000
+        const seen = (uid) => {
+          const t = db
+            .prepare(
+              'SELECT last_seen FROM session_presence WHERE session_id=? AND user_id=?',
+            )
+            .get(playing.id, uid)?.last_seen
+          return t ? Date.now() - new Date(t).getTime() < STALE_MS : false
+        }
+        if (seen(p.user_a) && seen(p.user_b)) {
+          s = playing
+        } else {
+          // 双方至少一方早就离开，把这个僵尸 session 标记为废弃
+          db.prepare(
+            "UPDATE play_sessions SET status='finished', result_json=? WHERE id=?",
+          ).run(
+            JSON.stringify({
+              mode: playing.mode,
+              total: 0,
+              abandoned: true,
+              message: '中途离开，对局已废弃',
+            }),
+            playing.id,
+          )
+        }
+      }
+    }
     if (!s) {
       const r = db
         .prepare(
