@@ -134,6 +134,39 @@ playRouter.post('/play/:sid/accept', auth, (req, res) => {
   res.json({ ok: true })
 })
 
+// 离开对局（导航走 / 关页面时主动调）；双方都走了就立刻关房
+playRouter.post('/play/:sid/leave', auth, (req, res) => {
+  const s = db.prepare('SELECT * FROM play_sessions WHERE id=?').get(req.params.sid)
+  if (!s) return res.json({ ok: true }) // 已经没了也算成功
+  const p = myPartnership(req.userId)
+  if (!p || s.partnership_id !== p.id) return res.json({ ok: true })
+  // 删掉自己的在场记录
+  db.prepare('DELETE FROM session_presence WHERE session_id=? AND user_id=?').run(s.id, req.userId)
+  // 只关 playing 状态的；invited 让发起方/对方按自己的撤销/拒绝流程走
+  if (s.status === 'playing') {
+    const peerId = req.userId === p.user_a ? p.user_b : p.user_a
+    const peerSeen = db
+      .prepare('SELECT last_seen FROM session_presence WHERE session_id=? AND user_id=?')
+      .get(s.id, peerId)?.last_seen
+    const peerStale = !peerSeen || Date.now() - new Date(peerSeen).getTime() >= 5000
+    if (peerStale) {
+      db.prepare(
+        "UPDATE play_sessions SET status='finished', result_json=? WHERE id=?",
+      ).run(
+        JSON.stringify({
+          mode: s.mode,
+          total: 0,
+          abandoned: true,
+          grade: 'C',
+          message: '双方都离开了，对局已关闭',
+        }),
+        s.id,
+      )
+    }
+  }
+  res.json({ ok: true })
+})
+
 // 邀请方撤回（或被邀请方拒绝）
 playRouter.post('/play/:sid/cancel', auth, (req, res) => {
   const s = db.prepare('SELECT * FROM play_sessions WHERE id=?').get(req.params.sid)

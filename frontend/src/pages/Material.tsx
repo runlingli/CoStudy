@@ -30,7 +30,7 @@ export default function Material() {
   const [mat, setMat] = useState<any>(null)
   const [chunks, setChunks] = useState<any[]>([])
   const [pickFor, setPickFor] = useState<number | null>(null)
-  const [launching, setLaunching] = useState(false)
+  const [launchingId, setLaunchingId] = useState<number | null>(null)
   const [err, setErr] = useState('')
   const [currentSeq, setCurrentSeq] = useState<number | null>(null)
   const [points, setPoints] = useState(0)
@@ -61,26 +61,26 @@ export default function Material() {
 
   async function launch(pieceId: number, mode: string) {
     setErr('')
-    setLaunching(true)
+    setLaunchingId(pieceId)
     try {
       const d = await api(`/pieces/${pieceId}/play`, { mode })
       nav(`/play/${d.sessionId}`)
     } catch (e) {
       setErr((e as Error).message)
     } finally {
-      setLaunching(false)
+      setLaunchingId(null)
     }
   }
   async function aiParse(pieceId: number) {
     setErr('')
-    setLaunching(true)
+    setLaunchingId(pieceId)
     try {
       await api(`/pieces/${pieceId}/start`, {})
       load()
     } catch (e) {
       setErr((e as Error).message)
     } finally {
-      setLaunching(false)
+      setLaunchingId(null)
     }
   }
   async function requestJump(targetPieceId: number) {
@@ -296,11 +296,11 @@ export default function Material() {
                         ) : pc.parse_status === 'pending' ? (
                           <button
                             onClick={() => aiParse(pc.id)}
-                            disabled={launching}
+                            disabled={launchingId === pc.id}
                             className="border border-neutral-800 bg-neutral-800 px-3 py-1 text-white disabled:opacity-40"
                             title="让 AI 解析本节并出题（约 10–30s）；出完才能邀请搭档"
                           >
-                            {launching ? '出题中…' : 'AI 出题'}
+                            {launchingId === pc.id ? '出题中…' : 'AI 出题'}
                           </button>
                         ) : (
                           <button
@@ -411,7 +411,7 @@ export default function Material() {
                         {MODES.map((m) => (
                           <button
                             key={m.key}
-                            disabled={launching}
+                            disabled={launchingId === pc.id}
                             onClick={() => launch(pc.id, m.key)}
                             className="block w-full border border-neutral-300 px-3 py-2 text-left hover:bg-neutral-50 disabled:opacity-40"
                           >
@@ -421,7 +421,7 @@ export default function Material() {
                             </div>
                           </button>
                         ))}
-                        {launching && (
+                        {launchingId === pc.id && (
                           <p className="pt-1 text-xs text-neutral-500">
                             建立邀请中…
                           </p>

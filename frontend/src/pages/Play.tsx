@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
-import { api } from '../api'
+import { api, getToken } from '../api'
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -36,6 +36,41 @@ export default function Play() {
         if (d.status === 'finished') stoppedRef.current = true
       })
       .catch((e) => setErr((e as Error).message))
+  }, [sid])
+
+  // 启动轮询：每 1.5s 拉一次，直到 finished
+  useEffect(() => {
+    stoppedRef.current = false
+    poll()
+    const t = setInterval(() => {
+      if (!stoppedRef.current) poll()
+    }, 1500)
+    return () => clearInterval(t)
+  }, [poll])
+
+  // 离开对局（路由切走/关页面）主动告知后端；双方都走 → 立刻关房
+  useEffect(() => {
+    const leave = () => {
+      if (!sid) return
+      try {
+        fetch(`/api/play/${sid}/leave`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${getToken()}`,
+          },
+          body: '{}',
+          keepalive: true,
+        })
+      } catch {
+        /* best-effort */
+      }
+    }
+    window.addEventListener('beforeunload', leave)
+    return () => {
+      window.removeEventListener('beforeunload', leave)
+      leave()
+    }
   }, [sid])
 
   async function accept() {
