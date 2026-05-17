@@ -17,8 +17,14 @@ import Play from './pages/Play'
 
 export interface Me {
   user: { id: number; username: string }
-  partnership: { id: number; status: string; invite_code?: string } | null
+  partnership: {
+    id: number
+    status: string
+    invite_code?: string
+    points?: number
+  } | null
   partner: { username: string } | null
+  points?: number
 }
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -104,6 +110,11 @@ function Shell({ me, reload }: { me: Me; reload: () => void }) {
         <div className="text-neutral-500">
           {me.user.username}
           {me.partner ? ` · 搭档 ${me.partner.username}` : ' · 未绑定搭档'}
+          {me.partner && (
+            <span className="ml-2 text-amber-700">
+              · 积分 {me.points ?? 0}
+            </span>
+          )}
           <button
             className="ml-3 text-neutral-500 underline"
             onClick={() => {

@@ -6,6 +6,7 @@ import {
   myPartnership,
   ensureParsed,
   completePiece,
+  addPoints,
 } from './lib.js'
 
 export const playRouter = express.Router()
@@ -366,6 +367,10 @@ function finalizeAsymmetric(s, p) {
     message: `你们配合答对 ${sel.correct}/${total}（讲解者讲、选择者选）`,
     reveal: buildReveal(s.id, full),
   }
+  // 积分奖励：100 基础 + 10 × 正确数
+  const pointsAwarded = 100 + 10 * sel.correct
+  result.pointsAwarded = pointsAwarded
+  result.points = addPoints(p.id, pointsAwarded)
   db.prepare(
     "UPDATE play_sessions SET status='finished', result_json=? WHERE id=?",
   ).run(JSON.stringify(result), s.id)
@@ -424,6 +429,10 @@ playRouter.post('/play/:sid/finish', auth, (req, res) => {
         : `分差 ${gap}，配合默契，继续保持`,
     reveal: buildReveal(s.id, full),
   }
+  // 积分奖励：100 基础 + 5 × 双方正确总和
+  const pointsAwarded = 100 + 5 * (a.correct + b.correct)
+  result.pointsAwarded = pointsAwarded
+  result.points = addPoints(p.id, pointsAwarded)
   db.prepare(
     "UPDATE play_sessions SET status='finished', result_json=? WHERE id=?",
   ).run(JSON.stringify(result), s.id)

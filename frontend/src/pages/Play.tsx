@@ -148,8 +148,13 @@ export default function Play() {
             </li>
           ))}
         </ul>
+        {r.pointsAwarded != null && (
+          <p className="mt-4 text-sm text-amber-700">
+            +{r.pointsAwarded} 积分（共享积分 {r.points}）
+          </p>
+        )}
         {r.nextUnlocked && (
-          <p className="mt-4 text-sm text-green-700">已解锁下一个 component。</p>
+          <p className="mt-1 text-sm text-green-700">已解锁下一节。</p>
         )}
         <div className="mt-5 flex gap-4 text-sm">
           {mid && (

@@ -33,6 +33,7 @@ CREATE TABLE IF NOT EXISTS partnerships (
   user_b INTEGER,
   invite_code TEXT UNIQUE,
   status TEXT NOT NULL,            -- pending | active
+  points INTEGER NOT NULL DEFAULT 1000,  -- 共享积分（初始仁慈给 1000）
   created_at TEXT NOT NULL
 );
 
@@ -116,11 +117,21 @@ CREATE TABLE IF NOT EXISTS skip_requests (
   created_at TEXT NOT NULL,
   PRIMARY KEY (partnership_id, piece_id)
 );
+
+-- 跨节"快进"申请：批准后中间所有节标 skipped，目标节变 available；扣搭档共享积分
+CREATE TABLE IF NOT EXISTS jump_requests (
+  id INTEGER PRIMARY KEY,
+  partnership_id INTEGER NOT NULL UNIQUE,  -- 一对搭档同时只能有一个待批快进
+  target_piece_id INTEGER NOT NULL,
+  requester_id INTEGER NOT NULL,
+  cost INTEGER NOT NULL,
+  created_at TEXT NOT NULL
+);
 `)
 
 // 兼容旧 db：给已有表加新列（demo 级 migration）
-try {
-  db.exec('ALTER TABLE play_sessions ADD COLUMN round_shuffle TEXT')
-} catch {
-  /* 已有该列就跳过 */
+function tryExec(sql) {
+  try { db.exec(sql) } catch { /* 列已存在 */ }
 }
+tryExec('ALTER TABLE play_sessions ADD COLUMN round_shuffle TEXT')
+tryExec('ALTER TABLE partnerships ADD COLUMN points INTEGER NOT NULL DEFAULT 1000')

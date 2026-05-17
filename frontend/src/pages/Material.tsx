@@ -27,6 +27,9 @@ export default function Material() {
   const [pickFor, setPickFor] = useState<number | null>(null)
   const [launching, setLaunching] = useState(false)
   const [err, setErr] = useState('')
+  const [currentSeq, setCurrentSeq] = useState<number | null>(null)
+  const [points, setPoints] = useState(0)
+  const [pendingJump, setPendingJump] = useState<any>(null)
   const stoppedRef = useRef(false)
 
   const load = useCallback(() => {
@@ -34,6 +37,9 @@ export default function Material() {
       .then((d) => {
         setMat(d.material)
         setChunks(d.chunks || [])
+        setCurrentSeq(d.currentSeq ?? null)
+        setPoints(d.points ?? 0)
+        setPendingJump(d.pending_jump ?? null)
       })
       .catch((e) => {
         setErr((e as Error).message)
@@ -64,6 +70,24 @@ export default function Material() {
     setErr('')
     try {
       await api(`/pieces/${pieceId}/${path}`, {})
+      load()
+    } catch (e) {
+      setErr((e as Error).message)
+    }
+  }
+  async function requestJump(targetPieceId: number) {
+    setErr('')
+    try {
+      await api('/jump/request', { targetPieceId })
+      load()
+    } catch (e) {
+      setErr((e as Error).message)
+    }
+  }
+  async function jumpAction(reqId: number, action: 'approve' | 'cancel') {
+    setErr('')
+    try {
+      await api(`/jump/${reqId}/${action}`, {})
       load()
     } catch (e) {
       setErr((e as Error).message)
@@ -119,11 +143,51 @@ export default function Material() {
       {mat.user_note && (
         <p className="mb-1 text-xs text-neutral-500">备注：{mat.user_note}</p>
       )}
-      <p className="mb-4 text-xs text-neutral-400">
-        共 {chunks.length} 章 / {pieceCount} 节。<b>「AI 出题 + 邀请」</b>
-        首次会让 AI 解析这一节并出题（约 10–30s），然后建邀请等搭档接受；
-        如果跳过这一节，点 <b>「提议跳过」</b>，搭档同意后自动解锁下一节。
+      <p className="mb-3 text-xs text-neutral-400">
+        共 {chunks.length} 章 / {pieceCount} 节 · 共享积分 {points}。
+        <b>「AI 出题 + 邀请」</b>
+        首次让 AI 出题（约 10–30s）然后邀请搭档；
+        <b>「提议跳过」</b>下一节免费、需对方同意；
+        要直接跳到某一节，点那一节旁的 <b>「跳到这里」</b>，按节数扣积分。
       </p>
+      {pendingJump && (
+        <div className="mb-3 border border-amber-300 bg-amber-50 px-3 py-2 text-xs">
+          {pendingJump.from_me ? (
+            <div className="flex items-center justify-between">
+              <span>
+                你提议快进到下方的某一节（消耗 {pendingJump.cost} 分），等搭档同意…
+              </span>
+              <button
+                onClick={() => jumpAction(pendingJump.id, 'cancel')}
+                className="text-neutral-500 underline"
+              >
+                撤销
+              </button>
+            </div>
+          ) : (
+            <div className="flex items-center justify-between">
+              <span>
+                搭档提议快进到下方某节，消耗 <b>{pendingJump.cost}</b> 分（你们当前 {points}）。同意？
+              </span>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => jumpAction(pendingJump.id, 'approve')}
+                  disabled={points < pendingJump.cost}
+                  className="border border-neutral-800 bg-neutral-800 px-3 py-1 text-white disabled:opacity-40"
+                >
+                  同意
+                </button>
+                <button
+                  onClick={() => jumpAction(pendingJump.id, 'cancel')}
+                  className="border border-neutral-400 px-3 py-1"
+                >
+                  不同意
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
       {err && <p className="mb-3 text-sm text-red-600">{err}</p>}
 
       <div className="space-y-5">
@@ -155,7 +219,39 @@ export default function Material() {
                       </div>
                       <div className="flex shrink-0 gap-2">
                         {locked ? (
-                          <span className="text-xs text-neutral-400">🔒</span>
+                          (() => {
+                            const cs = currentSeq
+                            const cost =
+                              cs != null && pc.seq > cs
+                                ? (pc.seq - cs) * 100
+                                : null
+                            const isJumpTarget =
+                              pendingJump?.target_piece_id === pc.id
+                            return (
+                              <>
+                                <span className="text-xs text-neutral-400">🔒</span>
+                                {cost != null && !pendingJump && (
+                                  <button
+                                    onClick={() => requestJump(pc.id)}
+                                    disabled={points < cost}
+                                    title={
+                                      points < cost
+                                        ? `积分不够：需要 ${cost} 分（你们当前 ${points}）`
+                                        : `提议跳到这里：消耗 ${cost} 分（${pc.seq - (cs ?? 0)} 节 × 100）`
+                                    }
+                                    className="border border-amber-700 px-2 py-1 text-xs text-amber-800 disabled:opacity-40"
+                                  >
+                                    跳到这里 -{cost}
+                                  </button>
+                                )}
+                                {isJumpTarget && (
+                                  <span className="text-xs text-amber-700">
+                                    ← 快进目标
+                                  </span>
+                                )}
+                              </>
+                            )
+                          })()
                         ) : (
                           <>
                             <button

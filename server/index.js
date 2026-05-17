@@ -5,7 +5,15 @@ import { fileURLToPath } from 'node:url'
 import { existsSync } from 'node:fs'
 import os from 'node:os'
 import { db } from './db.js'
-import { now, auth, myPartnership, ensureParsed, completePiece } from './lib.js'
+import {
+  now,
+  auth,
+  myPartnership,
+  ensureParsed,
+  completePiece,
+  addPoints,
+  getPoints,
+} from './lib.js'
 import { playRouter } from './play.js'
 
 const here = dirname(fileURLToPath(import.meta.url))
@@ -271,9 +279,15 @@ app.get('/api/me', auth, (req, res) => {
   res.json({
     user: u,
     partnership: p
-      ? { id: p.id, status: p.status, invite_code: p.invite_code }
+      ? {
+          id: p.id,
+          status: p.status,
+          invite_code: p.invite_code,
+          points: p.points ?? 0,
+        }
       : null,
     partner,
+    points: p?.points ?? 0,
   })
 })
 
@@ -492,6 +506,18 @@ app.get('/api/materials/:id', auth, (req, res) => {
     ...c,
     pieces: pieces.filter((pc) => pc.chunk_id === c.id),
   }))
+  // 当前 available 的 seq（用于前端算"跳到这里"的成本）
+  const cur = db
+    .prepare(
+      "SELECT seq FROM pieces JOIN progress ON progress.piece_id = pieces.id WHERE progress.partnership_id=? AND progress.state='available' AND pieces.material_id=?",
+    )
+    .get(p.id, m.id)
+  // 任意时刻一对搭档只能有一个 pending jump
+  const jump = db
+    .prepare(
+      'SELECT id, target_piece_id, requester_id, cost FROM jump_requests WHERE partnership_id=?',
+    )
+    .get(p.id)
   res.json({
     material: {
       id: m.id,
@@ -501,6 +527,17 @@ app.get('/api/materials/:id', auth, (req, res) => {
       user_note: m.user_note,
     },
     chunks: grouped,
+    currentSeq: cur?.seq ?? null,
+    points: getPoints(p.id),
+    pending_jump: jump
+      ? {
+          id: jump.id,
+          target_piece_id: jump.target_piece_id,
+          cost: jump.cost,
+          requester_id: jump.requester_id,
+          from_me: jump.requester_id === req.userId,
+        }
+      : null,
   })
 })
 
@@ -639,6 +676,93 @@ app.post('/api/pieces/:id/skip/decline', auth, (req, res) => {
   db.prepare(
     'DELETE FROM skip_requests WHERE partnership_id=? AND piece_id=?',
   ).run(p.id, req.params.id)
+  res.json({ ok: true })
+})
+
+// ============ 快进（消耗积分跳过中间多节）============
+const JUMP_COST_PER_PIECE = 100
+
+function currentAvailableSeq(partnershipId, materialId) {
+  return (
+    db
+      .prepare(
+        "SELECT seq FROM pieces JOIN progress ON progress.piece_id = pieces.id WHERE progress.partnership_id=? AND progress.state='available' AND pieces.material_id=?",
+      )
+      .get(partnershipId, materialId)?.seq ?? null
+  )
+}
+
+// 申请快进到某节
+app.post('/api/jump/request', auth, (req, res) => {
+  const p = myPartnership(req.userId)
+  if (!p || p.status !== 'active')
+    return res.status(400).json({ error: '请先绑定固定搭档' })
+  const { targetPieceId } = req.body || {}
+  const target = db.prepare('SELECT * FROM pieces WHERE id=?').get(targetPieceId)
+  if (!target) return res.status(404).json({ error: '目标节不存在' })
+  const curSeq = currentAvailableSeq(p.id, target.material_id)
+  if (curSeq == null)
+    return res.status(400).json({ error: '本资料没有可学习的节，无需快进' })
+  if (target.seq <= curSeq)
+    return res.status(400).json({ error: '只能向后跳到尚未解锁的节' })
+  const piecesToSkip = target.seq - curSeq
+  const cost = piecesToSkip * JUMP_COST_PER_PIECE
+  if (getPoints(p.id) < cost)
+    return res.status(400).json({ error: `积分不够：需要 ${cost} 分` })
+  db.prepare(
+    `INSERT INTO jump_requests(partnership_id,target_piece_id,requester_id,cost,created_at)
+     VALUES(?,?,?,?,?)
+     ON CONFLICT(partnership_id) DO UPDATE SET
+       target_piece_id=excluded.target_piece_id,
+       requester_id=excluded.requester_id,
+       cost=excluded.cost,
+       created_at=excluded.created_at`,
+  ).run(p.id, target.id, req.userId, cost, now())
+  res.json({ ok: true, cost })
+})
+
+app.post('/api/jump/:reqId/approve', auth, (req, res) => {
+  const p = myPartnership(req.userId)
+  if (!p) return res.status(400).json({ error: '无搭档' })
+  const jr = db
+    .prepare('SELECT * FROM jump_requests WHERE id=? AND partnership_id=?')
+    .get(req.params.reqId, p.id)
+  if (!jr) return res.status(404).json({ error: '申请不存在' })
+  if (jr.requester_id === req.userId)
+    return res.status(400).json({ error: '不能同意自己的申请' })
+  const target = db
+    .prepare('SELECT * FROM pieces WHERE id=?')
+    .get(jr.target_piece_id)
+  const curSeq = currentAvailableSeq(p.id, target.material_id)
+  if (curSeq == null || target.seq <= curSeq) {
+    db.prepare('DELETE FROM jump_requests WHERE id=?').run(jr.id)
+    return res.status(400).json({ error: '当前进度已变，申请失效' })
+  }
+  if (getPoints(p.id) < jr.cost)
+    return res.status(400).json({ error: '积分不够，申请失效' })
+  // 扣分；把中间节标 skipped；目标节 available
+  addPoints(p.id, -jr.cost)
+  db.prepare(
+    `UPDATE progress SET state='skipped', updated_at=?
+       WHERE partnership_id=? AND piece_id IN (
+         SELECT id FROM pieces WHERE material_id=? AND seq >= ? AND seq < ?
+       )`,
+  ).run(now(), p.id, target.material_id, curSeq, target.seq)
+  db.prepare(
+    `UPDATE progress SET state='available', updated_at=?
+       WHERE partnership_id=? AND piece_id=?`,
+  ).run(now(), p.id, target.id)
+  db.prepare('DELETE FROM jump_requests WHERE id=?').run(jr.id)
+  res.json({ ok: true, remainingPoints: getPoints(p.id) })
+})
+
+// 申请人撤销 / 对方拒绝（同接口）
+app.post('/api/jump/:reqId/cancel', auth, (req, res) => {
+  const p = myPartnership(req.userId)
+  if (!p) return res.status(400).json({ error: '无搭档' })
+  db.prepare(
+    'DELETE FROM jump_requests WHERE id=? AND partnership_id=?',
+  ).run(req.params.reqId, p.id)
   res.json({ ok: true })
 })
 

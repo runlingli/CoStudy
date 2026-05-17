@@ -19,6 +19,23 @@ export function myPartnership(userId) {
     .get(userId, userId)
 }
 
+// 积分：增加并返回新值
+export function addPoints(partnershipId, delta) {
+  db.prepare('UPDATE partnerships SET points = points + ? WHERE id=?').run(
+    delta,
+    partnershipId,
+  )
+  return db
+    .prepare('SELECT points FROM partnerships WHERE id=?')
+    .get(partnershipId).points
+}
+export function getPoints(partnershipId) {
+  return (
+    db.prepare('SELECT points FROM partnerships WHERE id=?').get(partnershipId)
+      ?.points || 0
+  )
+}
+
 // 抓单页正文（用于链接型 component 懒解析时取本节内容）
 export async function fetchSectionText(url) {
   try {
