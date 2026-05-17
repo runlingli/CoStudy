@@ -12,6 +12,8 @@ export default function Play() {
   const [err, setErr] = useState('')
   const [nowMs, setNowMs] = useState(Date.now())
   const stoppedRef = useRef(false)
+  const qCacheRef = useRef<Record<number, { q: any; reveal: any }>>({})
+  const [prevView, setPrevView] = useState<number | null>(null)
 
   // 本地秒表，每秒滴答（仅用于显示；服务器是权威的）
   useEffect(() => {
@@ -35,6 +37,16 @@ export default function Play() {
     }, 1500)
     return () => clearInterval(t)
   }, [poll])
+
+  useEffect(() => {
+    if (!st || st.mode !== 'asymmetric_choice') return
+    const idx = st.curQ
+    const prev = qCacheRef.current[idx] || { q: null, reveal: null }
+    qCacheRef.current[idx] = {
+      q: st.question ?? prev.q,
+      reveal: st.reveal ?? prev.reveal,
+    }
+  }, [st])
 
   async function accept() {
     setErr('')
@@ -319,8 +331,11 @@ export default function Play() {
 
   // ============ 进行中 · 不对称（一题一揭，看题者盲选 ABCD） ============
   if (st.mode === 'asymmetric_choice') {
-    const q = st.question || {}
-    const reveal = st.reveal
+    const isHistory = prevView !== null
+    const displayIdx = isHistory ? prevView! : st.curQ
+    const cached = isHistory ? qCacheRef.current[prevView!] : null
+    const q = cached?.q || st.question || {}
+    const reveal = cached?.reveal ?? st.reveal
     const LABELS = ['A', 'B', 'C', 'D']
     return (
       <div>
@@ -330,7 +345,9 @@ export default function Play() {
         </div>
         {offlineBanner}
         <div className="mb-3 text-xs text-neutral-500">
-          第 {st.curQ + 1} / {st.total} 题
+          {isHistory
+            ? <span className="text-amber-600">查看第 {displayIdx + 1} 题（历史）· 当前第 {st.curQ + 1} / {st.total} 题</span>
+            : `第 ${st.curQ + 1} / ${st.total} 题`}
         </div>
         <div className="grid gap-4 md:grid-cols-10">
           {sourcePanel}
@@ -349,9 +366,9 @@ export default function Play() {
                         type="radio"
                         name="cur"
                         className="mr-2"
-                        disabled={st.revealed}
-                        checked={st.myChoice === oi}
-                        onChange={() => submitAsym(oi)}
+                        disabled={st.revealed || isHistory}
+                        checked={isHistory ? false : st.myChoice === oi}
+                        onChange={() => !isHistory && submitAsym(oi)}
                       />
                       {L}
                     </label>
@@ -370,7 +387,7 @@ export default function Play() {
                     </li>
                   ))}
                 </ul>
-                {!reveal && (
+                {!reveal && !isHistory && (
                   <p className="pt-2 text-xs text-neutral-500">
                     等搭档选…
                   </p>
@@ -406,14 +423,35 @@ export default function Play() {
                     {oi === reveal.narratorChoice ? ' ←搭档选了' : ''}
                   </div>
                 ))}
-                <button
-                  onClick={nextQ}
-                  className="mt-3 border border-neutral-800 bg-neutral-800 px-4 py-2 text-white"
-                >
-                  {st.curQ + 1 >= st.total ? '结算本关' : '下一题 →'}
-                </button>
+                {!isHistory && (
+                  <button
+                    onClick={nextQ}
+                    className="mt-3 border border-neutral-800 bg-neutral-800 px-4 py-2 text-white"
+                  >
+                    {st.curQ + 1 >= st.total ? '结算本关' : '下一题 →'}
+                  </button>
+                )}
               </div>
             )}
+
+            <div className="flex gap-2 border-t border-neutral-100 pt-3">
+              {displayIdx > 0 && (
+                <button
+                  onClick={() => setPrevView(displayIdx - 1)}
+                  className="border border-neutral-400 px-3 py-1.5 text-xs"
+                >
+                  ← 上一题
+                </button>
+              )}
+              {isHistory && (
+                <button
+                  onClick={() => setPrevView(null)}
+                  className="border border-neutral-600 px-3 py-1.5 text-xs"
+                >
+                  返回第 {st.curQ + 1} 题 →
+                </button>
+              )}
+            </div>
           </div>
         </div>
         {err && <p className="mt-3 text-sm text-red-600">{err}</p>}
