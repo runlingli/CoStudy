@@ -48,16 +48,18 @@ export default function Play() {
     return () => clearInterval(t)
   }, [poll])
 
-  // 离开对局（路由切走/关页面）主动告知后端；双方都走 → 立刻关房
+  // 离开对局（路由切走/关页面/退出登录）主动告知后端；双方都走 → 立刻关房
   useEffect(() => {
+    // 挂载时把 token "冻结"，即便后面 clearToken() 了 leave 也能带着原 token 发
+    const token = getToken()
     const leave = () => {
-      if (!sid) return
+      if (!sid || !token) return
       try {
         fetch(`/api/play/${sid}/leave`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            Authorization: `Bearer ${getToken()}`,
+            Authorization: `Bearer ${token}`,
           },
           body: '{}',
           keepalive: true,

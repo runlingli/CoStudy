@@ -268,6 +268,40 @@ app.post('/api/login', (req, res) => {
   res.json({ token, username: u.username })
 })
 
+// 退出登录：把当前 token 作废，并关闭该用户搭档关系下所有 playing 对局
+app.post('/api/logout', auth, (req, res) => {
+  const p = myPartnership(req.userId)
+  if (p && p.status === 'active') {
+    const playings = db
+      .prepare(
+        "SELECT id FROM play_sessions WHERE partnership_id=? AND status='playing'",
+      )
+      .all(p.id)
+    for (const s of playings) {
+      // 立刻清掉这个用户在该 session 的 presence，并把 session 标 abandoned
+      db.prepare(
+        'DELETE FROM session_presence WHERE session_id=? AND user_id=?',
+      ).run(s.id, req.userId)
+      db.prepare(
+        "UPDATE play_sessions SET status='finished', result_json=? WHERE id=?",
+      ).run(
+        JSON.stringify({
+          mode: '',
+          total: 0,
+          abandoned: true,
+          grade: 'C',
+          message: '一方退出登录，对局已关闭',
+        }),
+        s.id,
+      )
+    }
+  }
+  // 让 token 在服务端也立即失效
+  const t = (req.headers.authorization || '').replace('Bearer ', '')
+  if (t) db.prepare('DELETE FROM tokens WHERE token=?').run(t)
+  res.json({ ok: true })
+})
+
 app.get('/api/me', auth, (req, res) => {
   const u = db.prepare('SELECT id,username FROM users WHERE id=?').get(req.userId)
   const p = myPartnership(req.userId)

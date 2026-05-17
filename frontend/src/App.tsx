@@ -157,7 +157,13 @@ function Shell({ me, reload }: { me: Me; reload: () => void }) {
           )}
           <button
             className="ml-3 text-neutral-500 underline"
-            onClick={() => {
+            onClick={async () => {
+              // 先告诉服务端关闭所有 playing 对局 + 让 token 失效
+              try {
+                await api('/logout', {})
+              } catch {
+                /* ignore */
+              }
               clearToken()
               reload()
               nav('/')
