@@ -14,6 +14,7 @@ export default function Play() {
   const stoppedRef = useRef(false)
   const qCacheRef = useRef<Record<number, { q: any; reveal: any }>>({})
   const [prevView, setPrevView] = useState<number | null>(null)
+  const buzzerAutoRef = useRef(-1)
 
   // 本地秒表，每秒滴答（仅用于显示；服务器是权威的）
   useEffect(() => {
@@ -31,6 +32,19 @@ export default function Play() {
             q: d.question ?? prev.q,
             reveal: d.reveal ?? prev.reveal,
           }
+        }
+        // 抢答答对时自动跳下一题（双方各自触发，服务端幂等）
+        if (
+          d.mode === 'buzzer' &&
+          d.revealed &&
+          d.reveal &&
+          (d.reveal.firstCorrect || d.reveal.secondCorrect) &&
+          buzzerAutoRef.current !== d.curQ
+        ) {
+          buzzerAutoRef.current = d.curQ
+          setTimeout(() => {
+            api(`/play/${sid}/next`, {}).then(poll).catch(poll)
+          }, 600)
         }
         setSt(d)
         if (d.status === 'finished') stoppedRef.current = true
@@ -107,15 +121,6 @@ export default function Play() {
     setErr('')
     try {
       await api(`/play/${sid}/next`, {})
-      poll()
-    } catch (e) {
-      setErr((e as Error).message)
-    }
-  }
-  async function buzz() {
-    setErr('')
-    try {
-      await api(`/play/${sid}/buzz`, {})
       poll()
     } catch (e) {
       setErr((e as Error).message)
@@ -530,12 +535,23 @@ export default function Play() {
     const q = st.question || {}
     const LABELS = ['A', 'B', 'C', 'D']
     const reveal = st.reveal
-    const nobodyBuzzed = !st.buzzUid && !st.revealed
-    const iAmBuzzer = st.iAmBuzzer
-    const peerBuzzedFirst = !!st.buzzUid && !st.iAmBuzzer
-    const myTurnSecond = peerBuzzedFirst && st.buzzWrong && !st.revealed
-    const waitingForPeer = peerBuzzedFirst && !st.buzzWrong && !st.revealed
-    const iAnsweredWrong = iAmBuzzer && st.buzzWrong && !st.revealed
+    // 谁可以点选项：没人抢答时双方都能点；第一人答错后另一方能点
+    const canAnswer =
+      (!st.buzzUid && !st.revealed) ||
+      (!st.iAmBuzzer && st.buzzWrong && !st.revealed)
+    // 第一人答错的选项索引（用来划掉）
+    const wrongChoice: number | null = st.buzzWrong ? st.firstChoice : null
+    // 状态提示文字
+    let statusMsg: string | null = null
+    if (st.iAmBuzzer && st.buzzWrong && !st.revealed)
+      statusMsg = `你答错了，等 ${st.peerName} 补救…`
+    else if (st.buzzUid && !st.iAmBuzzer && !st.buzzWrong && !st.revealed)
+      statusMsg = `${st.buzzName} 抢答了，等结果…`
+    else if (!st.buzzUid && !st.revealed)
+      statusMsg = '点击任意选项抢答'
+    else if (!st.iAmBuzzer && st.buzzWrong && !st.revealed)
+      statusMsg = `${st.buzzName} 答错了，轮到你！`
+
     return (
       <div>
         <div className="mb-3 flex items-center justify-between">
@@ -549,103 +565,65 @@ export default function Play() {
         <div className="grid gap-4 md:grid-cols-10">
           {sourcePanel}
           <div className="md:col-span-3 space-y-3 border border-neutral-300 p-4 text-sm">
-            <div className="text-base">{q.stem}</div>
-
-            {nobodyBuzzed && (
-              <>
-                <ul className="space-y-1 text-neutral-600">
-                  {(q.options || []).map((o: string, oi: number) => (
-                    <li key={oi}><b>{LABELS[oi]}.</b> {o}</li>
-                  ))}
-                </ul>
-                <button
-                  onClick={buzz}
-                  className="w-full border-2 border-neutral-800 bg-neutral-800 py-3 text-base font-semibold text-white"
-                >
-                  抢答！
-                </button>
-              </>
+            <div className="text-base font-medium">{q.stem}</div>
+            {statusMsg && (
+              <div className="text-xs text-neutral-500">{statusMsg}</div>
             )}
 
-            {iAmBuzzer && !iAnsweredWrong && !reveal && (
-              <>
-                <div className="text-xs font-medium text-green-700">你抢到了，快选答案：</div>
-                <div>
-                  {(q.options || []).map((o: string, oi: number) => (
-                    <label key={oi} className="block py-1">
-                      <input
-                        type="radio"
-                        name="buzz_ans"
-                        className="mr-2"
-                        checked={st.myChoice === oi}
-                        onChange={() => submitBuzz(oi)}
-                      />
+            {!reveal && (
+              <div className="space-y-2">
+                {(q.options || []).map((o: string, oi: number) => {
+                  const isWrong = oi === wrongChoice
+                  return isWrong ? (
+                    <div
+                      key={oi}
+                      className="w-full border border-red-200 bg-red-50 px-3 py-2 text-left text-red-400 line-through"
+                    >
                       <b>{LABELS[oi]}.</b> {o}
-                    </label>
-                  ))}
-                </div>
-              </>
-            )}
-
-            {iAnsweredWrong && (
-              <div className="text-xs text-red-600">
-                你答错了，等 {st.peerName} 补救…
+                    </div>
+                  ) : (
+                    <button
+                      key={oi}
+                      disabled={!canAnswer}
+                      onClick={() => submitBuzz(oi)}
+                      className="w-full border border-neutral-300 px-3 py-2 text-left hover:bg-neutral-50 disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      <b>{LABELS[oi]}.</b> {o}
+                    </button>
+                  )
+                })}
               </div>
             )}
 
-            {waitingForPeer && (
-              <>
-                <div className="text-xs text-amber-700">{st.buzzName} 抢答了，等 TA 选…</div>
-                <ul className="space-y-1 text-neutral-400">
-                  {(q.options || []).map((o: string, oi: number) => (
-                    <li key={oi}><b>{LABELS[oi]}.</b> {o}</li>
-                  ))}
-                </ul>
-              </>
-            )}
-
-            {myTurnSecond && (
-              <>
-                <div className="text-xs font-medium text-amber-700">
-                  {st.buzzName} 答错了，轮到你补救！
-                </div>
-                <div>
-                  {(q.options || []).map((o: string, oi: number) => (
-                    <label key={oi} className="block py-1">
-                      <input
-                        type="radio"
-                        name="buzz_ans"
-                        className="mr-2"
-                        checked={st.myChoice === oi}
-                        onChange={() => submitBuzz(oi)}
-                      />
-                      <b>{LABELS[oi]}.</b> {o}
-                    </label>
-                  ))}
-                </div>
-              </>
-            )}
-
             {reveal && (
-              <div className="border-t border-neutral-200 pt-3 space-y-1">
-                <div className="font-medium">
-                  {reveal.firstCorrect
-                    ? <span className="text-green-700">{reveal.firstUser} 抢答正确 ✓</span>
-                    : reveal.secondUser
-                    ? reveal.secondCorrect
-                      ? <span><span className="text-red-600">{reveal.firstUser} 答错</span>，<span className="text-green-700">{reveal.secondUser} 补救成功 ✓</span></span>
-                      : <span className="text-red-600">{reveal.firstUser} 和 {reveal.secondUser} 都答错了 ✗</span>
-                    : <span className="text-red-600">{reveal.firstUser} 答错，无人补救 ✗</span>
-                  }
+              <div className="space-y-1">
+                <div className="mb-2 text-xs font-medium">
+                  {reveal.firstCorrect ? (
+                    <span className="text-green-700">{reveal.firstUser} 答对 ✓</span>
+                  ) : reveal.secondCorrect ? (
+                    <span>
+                      <span className="text-red-600">{reveal.firstUser} 答错</span>
+                      {'，'}
+                      <span className="text-green-700">{reveal.secondUser} 补救成功 ✓</span>
+                    </span>
+                  ) : (
+                    <span className="text-red-600">
+                      {reveal.secondUser
+                        ? `${reveal.firstUser} 和 ${reveal.secondUser} 都答错了 ✗`
+                        : `${reveal.firstUser} 答错，无人补救 ✗`}
+                    </span>
+                  )}
                 </div>
                 {reveal.options.map((o: string, oi: number) => (
                   <div
                     key={oi}
                     className={
-                      oi === reveal.answer ? 'text-green-700'
-                      : oi === reveal.firstChoice && !reveal.firstCorrect ? 'text-red-500 line-through'
-                      : oi === reveal.secondChoice && !reveal.secondCorrect ? 'text-red-500 line-through'
-                      : 'text-neutral-500'
+                      oi === reveal.answer
+                        ? 'text-green-700'
+                        : (oi === reveal.firstChoice && !reveal.firstCorrect) ||
+                          (oi === reveal.secondChoice && !reveal.secondCorrect)
+                        ? 'text-red-400 line-through'
+                        : 'text-neutral-500'
                     }
                   >
                     {oi === reveal.answer ? '✓ ' : '　'}
@@ -655,12 +633,15 @@ export default function Play() {
                 {reveal.explanation && (
                   <p className="pt-1 text-xs text-neutral-500">{reveal.explanation}</p>
                 )}
-                <button
-                  onClick={nextQ}
-                  className="mt-3 border border-neutral-800 bg-neutral-800 px-4 py-2 text-white"
-                >
-                  {st.curQ + 1 >= st.total ? '结算本关' : '下一题 →'}
-                </button>
+                {/* 只在双方都答错时显示手动下一题按钮，答对走自动跳 */}
+                {!reveal.firstCorrect && !reveal.secondCorrect && (
+                  <button
+                    onClick={nextQ}
+                    className="mt-3 border border-neutral-800 bg-neutral-800 px-4 py-2 text-white"
+                  >
+                    {st.curQ + 1 >= st.total ? '结算本关' : '下一题 →'}
+                  </button>
+                )}
               </div>
             )}
           </div>

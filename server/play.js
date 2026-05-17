@@ -268,6 +268,14 @@ playRouter.get('/play/:sid', auth, (req, res) => {
         secondCorrect: second?.correct === 1,
       }
     }
+    // 第一人答错时，把错误选项告诉双方，以便前端划掉它
+    let firstChoice = null
+    if (s.buzz_wrong && !s.cur_revealed) {
+      const fa = db
+        .prepare('SELECT choice FROM play_answers WHERE session_id=? AND q_index=? ORDER BY rowid ASC LIMIT 1')
+        .get(s.id, s.cur_q)
+      firstChoice = fa?.choice ?? null
+    }
     return res.json({
       status: 'playing',
       mode: s.mode,
@@ -286,6 +294,7 @@ playRouter.get('/play/:sid', auth, (req, res) => {
       buzzName,
       iAmBuzzer: s.buzz_uid === req.userId,
       buzzWrong: !!s.buzz_wrong,
+      firstChoice,
       myChoice: myAns?.choice ?? null,
       revealed: !!s.cur_revealed,
       reveal,
@@ -381,21 +390,6 @@ playRouter.get('/play/:sid', auth, (req, res) => {
   })
 })
 
-// ============ 抢答（buzzer 专用） ============
-playRouter.post('/play/:sid/buzz', auth, (req, res) => {
-  let s = db.prepare('SELECT * FROM play_sessions WHERE id=?').get(req.params.sid)
-  if (!s) return res.status(404).json({ error: '对局不存在' })
-  const p = myPartnership(req.userId)
-  if (!p || s.partnership_id !== p.id) return res.status(403).json({ error: '无权访问' })
-  if (s.mode !== 'buzzer') return res.status(400).json({ error: '该玩法不支持抢答' })
-  s = autoFinalizeIfTimedOut(s, p)
-  if (s.status !== 'playing') return res.status(400).json({ error: '对局未在进行中' })
-  if (s.buzz_uid) return res.status(400).json({ error: '已有人抢答' })
-  if (s.cur_revealed) return res.status(400).json({ error: '本题已揭晓' })
-  db.prepare('UPDATE play_sessions SET buzz_uid=? WHERE id=?').run(req.userId, s.id)
-  return res.json({ ok: true })
-})
-
 // ============ 作答 ============
 playRouter.post('/play/:sid/answer', auth, (req, res) => {
   let s = db.prepare('SELECT * FROM play_sessions WHERE id=?').get(req.params.sid)
@@ -410,26 +404,41 @@ playRouter.post('/play/:sid/answer', auth, (req, res) => {
   const full = fullQuestions(s.piece_id)
 
   if (s.mode === 'buzzer') {
-    if (!s.buzz_uid) return res.status(400).json({ error: '请先抢答' })
     if (s.cur_revealed) return res.status(400).json({ error: '本题已揭晓' })
-    const isFirstBuzzer = s.buzz_uid === req.userId
-    const isSecondChance = !isFirstBuzzer && !!s.buzz_wrong
-    if (!isFirstBuzzer && !isSecondChance)
-      return res.status(400).json({ error: '等搭档答完（答错时轮到你）' })
     const { qIndex, choice } = req.body || {}
     if (qIndex !== s.cur_q) return res.status(400).json({ error: '请回答当前题' })
     if (!Number.isInteger(choice) || choice < 0 || choice > 3)
       return res.status(400).json({ error: '参数错误' })
     const correct = full[s.cur_q].answer === choice ? 1 : 0
-    db.prepare(
-      'INSERT OR REPLACE INTO play_answers(session_id,user_id,q_index,choice,correct) VALUES(?,?,?,?,?)',
-    ).run(s.id, req.userId, s.cur_q, choice, correct)
-    if (correct || isSecondChance) {
-      db.prepare('UPDATE play_sessions SET cur_revealed=1 WHERE id=?').run(s.id)
-    } else {
-      db.prepare('UPDATE play_sessions SET buzz_wrong=1 WHERE id=?').run(s.id)
+
+    if (!s.buzz_uid) {
+      // 点选项即抢答：原子占位，防止双方同时提交
+      const claim = db.prepare(
+        'UPDATE play_sessions SET buzz_uid=? WHERE id=? AND buzz_uid IS NULL'
+      ).run(req.userId, s.id)
+      if (claim.changes === 0) return res.status(400).json({ error: '搭档刚才抢先了' })
+      db.prepare(
+        'INSERT OR REPLACE INTO play_answers(session_id,user_id,q_index,choice,correct) VALUES(?,?,?,?,?)',
+      ).run(s.id, req.userId, s.cur_q, choice, correct)
+      if (correct) {
+        db.prepare('UPDATE play_sessions SET cur_revealed=1 WHERE id=?').run(s.id)
+      } else {
+        db.prepare('UPDATE play_sessions SET buzz_wrong=1 WHERE id=?').run(s.id)
+      }
+      return res.json({ ok: true })
     }
-    return res.json({ ok: true })
+
+    // 补救机会：第一人答错，第二人来
+    if (s.buzz_uid !== req.userId && s.buzz_wrong) {
+      db.prepare(
+        'INSERT OR REPLACE INTO play_answers(session_id,user_id,q_index,choice,correct) VALUES(?,?,?,?,?)',
+      ).run(s.id, req.userId, s.cur_q, choice, correct)
+      db.prepare('UPDATE play_sessions SET cur_revealed=1 WHERE id=?').run(s.id)
+      return res.json({ ok: true })
+    }
+
+    if (s.buzz_uid === req.userId) return res.status(400).json({ error: '你已经抢答了' })
+    return res.status(400).json({ error: '等搭档答完' })
   }
 
   if (s.mode === 'asymmetric_choice') {
