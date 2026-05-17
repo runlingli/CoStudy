@@ -51,11 +51,20 @@ npm run dev:server    # 只起后端，监听 0.0.0.0:3000
 
 ### 同事 / 你自己的另一台机器
 
-```bash
-git pull                                         # 同步最新代码
-BACKEND_URL=http://10.0.0.42:3000 npm run dev:web   # 前端 dev，proxy 指向 DB 主
-# 浏览器开 http://localhost:5173（自动走 proxy 到那台后端）
+**首次一次性配置**：在 `frontend/.env.local` 里写一行（这文件 git 已忽略，每人自己一份）：
+
 ```
+BACKEND_URL=http://10.0.0.42:3000
+```
+
+之后每次：
+
+```bash
+git pull
+npm run dev:web    # 浏览器开 http://localhost:5173
+```
+
+也可临时覆盖：`BACKEND_URL=http://其它IP:3000 npm run dev:web`。
 
 每个人都能 HMR 改前端、跑自己的 Vite，但读写都打到 **同一份 SQLite**，
 所以你们能作为同一对搭档对玩、共享导入的资料。
