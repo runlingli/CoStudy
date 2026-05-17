@@ -11,6 +11,7 @@ export default function Play() {
   const [coPicks, setCoPicks] = useState<Record<number, number>>({})
   const [err, setErr] = useState('')
   const [nowMs, setNowMs] = useState(Date.now())
+  const [buzzerPending, setBuzzerPending] = useState<number | null>(null)
   const stoppedRef = useRef(false)
   const qCacheRef = useRef<Record<number, { q: any; reveal: any }>>({})
   const [prevView, setPrevView] = useState<number | null>(null)
@@ -33,7 +34,10 @@ export default function Play() {
             reveal: d.reveal ?? prev.reveal,
           }
         }
-        setSt(d)
+        setSt((prev: any) => {
+          if (d.mode === 'buzzer' && prev?.curQ !== d.curQ) setBuzzerPending(null)
+          return d
+        })
         if (d.status === 'finished') stoppedRef.current = true
       })
       .catch((e) => setErr((e as Error).message))
@@ -114,12 +118,16 @@ export default function Play() {
     }
   }
   async function submitBuzz(choice: number) {
+    if (buzzerPending !== null) return
+    setBuzzerPending(choice)
     setErr('')
     try {
       await api(`/play/${sid}/answer`, { qIndex: st.curQ, choice })
       poll()
     } catch (e) {
       setErr((e as Error).message)
+    } finally {
+      setBuzzerPending(null)
     }
   }
   async function answerCo(qi: number, choice: number) {
@@ -571,9 +579,14 @@ export default function Play() {
                   ) : (
                     <button
                       key={oi}
-                      disabled={!canAnswer}
+                      disabled={!canAnswer || buzzerPending !== null}
                       onClick={() => submitBuzz(oi)}
-                      className="w-full border border-neutral-300 px-3 py-2 text-left hover:bg-neutral-50 disabled:cursor-not-allowed disabled:opacity-40"
+                      className={
+                        'w-full border px-3 py-2 text-left disabled:cursor-not-allowed disabled:opacity-40 ' +
+                        (buzzerPending === oi
+                          ? 'border-neutral-800 bg-neutral-800 text-white'
+                          : 'border-neutral-300 hover:bg-neutral-50')
+                      }
                     >
                       <b>{LABELS[oi]}.</b> {o}
                     </button>

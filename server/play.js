@@ -290,14 +290,14 @@ playRouter.get('/play/:sid', auth, (req, res) => {
       curQ: s.cur_q,
       total,
       question: { stem: q.stem, options: q.options },
-      buzzUid: s.buzz_uid || null,
+      buzzUid: s.buzz_uid != null ? Number(s.buzz_uid) : null,
       buzzName,
-      iAmBuzzer: s.buzz_uid === req.userId,
+      iAmBuzzer: !!s.buzz_uid && Number(s.buzz_uid) === req.userId,
       buzzWrong: !!s.buzz_wrong,
       firstChoice,
       myChoice: myAns?.choice ?? null,
       revealed: !!s.cur_revealed,
-      iConfirmedNext: !!(s.next_uid && s.next_uid === req.userId),
+      iConfirmedNext: !!(s.next_uid && Number(s.next_uid) === req.userId),
       reveal,
       peerName,
       peerOnline,
@@ -430,7 +430,7 @@ playRouter.post('/play/:sid/answer', auth, (req, res) => {
     }
 
     // 补救机会：第一人答错，第二人来
-    if (s.buzz_uid !== req.userId && s.buzz_wrong) {
+    if (Number(s.buzz_uid) !== req.userId && s.buzz_wrong) {
       db.prepare(
         'INSERT OR REPLACE INTO play_answers(session_id,user_id,q_index,choice,correct) VALUES(?,?,?,?,?)',
       ).run(s.id, req.userId, s.cur_q, choice, correct)
@@ -438,7 +438,7 @@ playRouter.post('/play/:sid/answer', auth, (req, res) => {
       return res.json({ ok: true })
     }
 
-    if (s.buzz_uid === req.userId) return res.status(400).json({ error: '你已经抢答了' })
+    if (Number(s.buzz_uid) === req.userId) return res.status(400).json({ error: '你已经抢答了' })
     return res.status(400).json({ error: '等搭档答完' })
   }
 
@@ -491,7 +491,7 @@ playRouter.post('/play/:sid/next', auth, (req, res) => {
       db.prepare('UPDATE play_sessions SET next_uid=? WHERE id=?').run(req.userId, s.id)
       return res.json({ waiting: true })
     }
-    if (s.next_uid === req.userId) {
+    if (s.next_uid && Number(s.next_uid) === req.userId) {
       return res.json({ waiting: true }) // 幂等：已确认，等搭档
     }
     // 两人都确认，继续往下推进
