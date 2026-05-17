@@ -29,11 +29,40 @@ export interface Me {
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-// 全局邀请通知：任意页面都能看到搭档发来的邀请
+// 短促两声提示音；浏览器禁止自动播放时静默失败
+function playInviteBeep() {
+  try {
+    const AC =
+      window.AudioContext ||
+      (window as unknown as { webkitAudioContext: typeof AudioContext })
+        .webkitAudioContext
+    if (!AC) return
+    const ctx = new AC()
+    const beep = (when: number, freq: number) => {
+      const o = ctx.createOscillator()
+      const g = ctx.createGain()
+      o.type = 'sine'
+      o.frequency.value = freq
+      g.gain.setValueAtTime(0.0001, ctx.currentTime + when)
+      g.gain.exponentialRampToValueAtTime(0.25, ctx.currentTime + when + 0.02)
+      g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + when + 0.28)
+      o.connect(g).connect(ctx.destination)
+      o.start(ctx.currentTime + when)
+      o.stop(ctx.currentTime + when + 0.3)
+    }
+    beep(0, 880)
+    beep(0.18, 1175)
+  } catch {
+    /* no-op */
+  }
+}
+
+// 全局邀请通知：右下角浮动，直到接受/拒绝/稍后
 function InviteBanner() {
   const nav = useNavigate()
   const [incoming, setIncoming] = useState<any[]>([])
   const dismissedRef = useRef<Set<number>>(new Set())
+  const seenRef = useRef<Set<number>>(new Set())
 
   const poll = useCallback(() => {
     api('/invites')
@@ -47,53 +76,64 @@ function InviteBanner() {
     return () => clearInterval(t)
   }, [poll])
 
+  // 检测到新邀请就响一下
+  useEffect(() => {
+    for (const inv of incoming) {
+      if (!seenRef.current.has(inv.session_id)) {
+        seenRef.current.add(inv.session_id)
+        if (!dismissedRef.current.has(inv.session_id)) playInviteBeep()
+      }
+    }
+  }, [incoming])
+
   const inv = incoming.find((x) => !dismissedRef.current.has(x.session_id))
   if (!inv) return null
   const modeLabel = inv.mode === 'asymmetric_choice' ? '不对称' : '共答'
   return (
-    <div className="sticky top-0 z-20 border-b border-amber-300 bg-amber-50">
-      <div className="mx-auto flex max-w-6xl items-center justify-between gap-3 px-5 py-2 text-sm">
-        <span>
-          <b>{inv.inviter_name}</b> 邀请你玩「{inv.piece_title}」（{modeLabel}）
-        </span>
-        <div className="flex gap-2">
-          <button
-            onClick={async () => {
-              try {
-                await api(`/play/${inv.session_id}/accept`, {})
-                nav(`/play/${inv.session_id}`)
-              } catch {
-                poll()
-              }
-            }}
-            className="border border-neutral-800 bg-neutral-800 px-3 py-1 text-white"
-          >
-            接受
-          </button>
-          <button
-            onClick={async () => {
-              try {
-                await api(`/play/${inv.session_id}/cancel`, {})
-              } catch {
-                /* ignore */
-              }
+    <div className="fixed bottom-4 right-4 z-30 w-80 max-w-[calc(100vw-2rem)] rounded-md border border-amber-400 bg-amber-50 p-4 shadow-lg">
+      <div className="mb-1 text-xs text-amber-700">📩 新邀请</div>
+      <div className="text-sm leading-snug">
+        <b>{inv.inviter_name}</b> 邀请你玩
+        <br />
+        「{inv.piece_title}」（{modeLabel}）
+      </div>
+      <div className="mt-3 flex flex-wrap gap-2">
+        <button
+          onClick={async () => {
+            try {
+              await api(`/play/${inv.session_id}/accept`, {})
+              nav(`/play/${inv.session_id}`)
+            } catch {
               poll()
-            }}
-            className="border border-neutral-400 px-3 py-1"
-          >
-            拒绝
-          </button>
-          <button
-            onClick={() => {
-              dismissedRef.current.add(inv.session_id)
-              setIncoming([...incoming])
-            }}
-            className="text-xs text-neutral-500 underline"
-            title="本次会话内忽略此邀请"
-          >
-            稍后
-          </button>
-        </div>
+            }
+          }}
+          className="border border-neutral-800 bg-neutral-800 px-3 py-1 text-sm text-white"
+        >
+          接受
+        </button>
+        <button
+          onClick={async () => {
+            try {
+              await api(`/play/${inv.session_id}/cancel`, {})
+            } catch {
+              /* ignore */
+            }
+            poll()
+          }}
+          className="border border-neutral-400 px-3 py-1 text-sm"
+        >
+          拒绝
+        </button>
+        <button
+          onClick={() => {
+            dismissedRef.current.add(inv.session_id)
+            setIncoming([...incoming])
+          }}
+          className="text-xs text-neutral-500 underline"
+          title="本次会话内忽略此邀请"
+        >
+          稍后
+        </button>
       </div>
     </div>
   )
