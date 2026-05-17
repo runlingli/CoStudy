@@ -680,7 +680,7 @@ app.post('/api/pieces/:id/skip/decline', auth, (req, res) => {
 })
 
 // ============ 快进（消耗积分跳过中间多节）============
-const JUMP_COST_PER_PIECE = 100
+const JUMP_FLAT_COST = 100   // 跳一关或十关都是这个固定价
 
 function currentAvailableSeq(partnershipId, materialId) {
   return (
@@ -705,8 +705,7 @@ app.post('/api/jump/request', auth, (req, res) => {
     return res.status(400).json({ error: '本资料没有可学习的节，无需快进' })
   if (target.seq <= curSeq)
     return res.status(400).json({ error: '只能向后跳到尚未解锁的节' })
-  const piecesToSkip = target.seq - curSeq
-  const cost = piecesToSkip * JUMP_COST_PER_PIECE
+  const cost = JUMP_FLAT_COST
   if (getPoints(p.id) < cost)
     return res.status(400).json({ error: `积分不够：需要 ${cost} 分` })
   db.prepare(

@@ -138,7 +138,7 @@ export default function Material() {
         共 {chunks.length} 章 / {pieceCount} 节 · 共享积分 {points}。
         <b>「AI 出题 + 邀请」</b>首次让 AI 出题（约 10–30s）然后邀请搭档；
         通过一关后下一节会自动免费解锁。要直接跳到后面某一节，点那一节旁
-        <b>「跳到这里」</b>，按跳过节数扣 100/节，并需要搭档同意。
+        <b>「跳到这里」</b>——固定 100 分/次（跳一节或十节都一样），需要搭档同意。
       </p>
       {pendingJump && (
         <div className="mb-3 border border-amber-300 bg-amber-50 px-3 py-2 text-xs">
@@ -211,10 +211,9 @@ export default function Material() {
                         {locked ? (
                           (() => {
                             const cs = currentSeq
-                            const cost =
-                              cs != null && pc.seq > cs
-                                ? (pc.seq - cs) * 100
-                                : null
+                            const cost = cs != null && pc.seq > cs ? 100 : null
+                            const piecesSkipped =
+                              cs != null && pc.seq > cs ? pc.seq - cs : 0
                             const isJumpTarget =
                               pendingJump?.target_piece_id === pc.id
                             return (
@@ -227,7 +226,7 @@ export default function Material() {
                                     title={
                                       points < cost
                                         ? `积分不够：需要 ${cost} 分（你们当前 ${points}）`
-                                        : `提议跳到这里：消耗 ${cost} 分（${pc.seq - (cs ?? 0)} 节 × 100）`
+                                        : `提议跳到这里：跳 ${piecesSkipped} 节，固定消耗 ${cost} 分`
                                     }
                                     className="border border-amber-700 px-2 py-1 text-xs text-amber-800 disabled:opacity-40"
                                   >
