@@ -481,7 +481,7 @@ app.get('/api/materials/:id', auth, (req, res) => {
       // 是否有"进行中"的对局可以续上（双方答完前任一方退出都能回来）
       const playing = db
         .prepare(
-          "SELECT id, mode, deadline_at FROM play_sessions WHERE partnership_id=? AND piece_id=? AND status='playing' ORDER BY id DESC LIMIT 1",
+          "SELECT id, mode, deadline_at, cur_q, cur_revealed FROM play_sessions WHERE partnership_id=? AND piece_id=? AND status='playing' ORDER BY id DESC LIMIT 1",
         )
         .get(p.id, pc.id)
       let resume = null
@@ -493,23 +493,35 @@ app.get('/api/materials/:id', auth, (req, res) => {
           const totalQ = db
             .prepare('SELECT COUNT(*) n FROM questions WHERE piece_id=?')
             .get(pc.id).n
-          const peerId = req.userId === p.user_a ? p.user_b : p.user_a
-          const mineDone = db
-            .prepare(
-              'SELECT COUNT(DISTINCT q_index) n FROM play_answers WHERE session_id=? AND user_id=?',
-            )
-            .get(playing.id, req.userId).n
-          const peerDone = db
-            .prepare(
-              'SELECT COUNT(DISTINCT q_index) n FROM play_answers WHERE session_id=? AND user_id=?',
-            )
-            .get(playing.id, peerId).n
-          resume = {
-            session_id: playing.id,
-            mode: playing.mode,
-            total: totalQ,
-            mine_done: mineDone,
-            peer_done: peerDone,
+          if (playing.mode === 'asymmetric_choice') {
+            // 同步推进：两人共享 cur_q；已完成题数 = cur_q（+1 如果当前题已揭晓）
+            const progress = playing.cur_q + (playing.cur_revealed ? 1 : 0)
+            resume = {
+              session_id: playing.id,
+              mode: playing.mode,
+              total: totalQ,
+              progress,
+            }
+          } else {
+            // co_choice：两人各自计数
+            const peerId = req.userId === p.user_a ? p.user_b : p.user_a
+            const mineDone = db
+              .prepare(
+                'SELECT COUNT(DISTINCT q_index) n FROM play_answers WHERE session_id=? AND user_id=?',
+              )
+              .get(playing.id, req.userId).n
+            const peerDone = db
+              .prepare(
+                'SELECT COUNT(DISTINCT q_index) n FROM play_answers WHERE session_id=? AND user_id=?',
+              )
+              .get(playing.id, peerId).n
+            resume = {
+              session_id: playing.id,
+              mode: playing.mode,
+              total: totalQ,
+              mine_done: mineDone,
+              peer_done: peerDone,
+            }
           }
         }
       }

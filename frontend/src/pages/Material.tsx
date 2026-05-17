@@ -280,11 +280,11 @@ export default function Material() {
                         className="mt-2 flex items-center justify-between gap-2 border border-blue-300 bg-blue-50 px-3 py-2 text-xs hover:bg-blue-100"
                       >
                         <span>
-                          ⏯ 对局进行中（{modeLabel(pc.pending_resume.mode)}）
-                          ：我 {pc.pending_resume.mine_done}/
-                          {pc.pending_resume.total} · 搭档{' '}
-                          {pc.pending_resume.peer_done}/
-                          {pc.pending_resume.total}
+                          ⏯ 对局进行中（
+                          {modeLabel(pc.pending_resume.mode)}）：
+                          {pc.pending_resume.mode === 'asymmetric_choice'
+                            ? `进度 ${pc.pending_resume.progress}/${pc.pending_resume.total}`
+                            : `我 ${pc.pending_resume.mine_done}/${pc.pending_resume.total} · 搭档 ${pc.pending_resume.peer_done}/${pc.pending_resume.total}`}
                         </span>
                         <span className="text-blue-700 underline">
                           继续 →
