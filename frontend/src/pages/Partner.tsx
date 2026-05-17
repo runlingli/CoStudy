@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { api } from '../api'
+import { api, clearToken } from '../api'
 
 export default function Partner({
   reload,
@@ -54,8 +54,29 @@ export default function Partner({
     }
   }
 
+  async function switchAccount() {
+    // 如果有 pending 邀请先取消，避免账号留着脏数据
+    if (myCode) {
+      try {
+        await api('/partner/cancel', {})
+      } catch {
+        /* ignore */
+      }
+    }
+    clearToken()
+    reload()
+  }
+
   return (
     <div className="mx-auto max-w-sm px-5 py-16">
+      {forced && (
+        <button
+          onClick={switchAccount}
+          className="mb-4 text-xs text-neutral-500 hover:underline"
+        >
+          ← 切换/重新注册账号
+        </button>
+      )}
       <h1 className="text-lg font-semibold">绑定固定搭档</h1>
       <p className="mb-6 text-sm text-neutral-500">
         {forced ? '注册后第一步：' : ''}和一个长期搭档绑定，之后一起学。
