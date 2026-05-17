@@ -66,6 +66,18 @@ export default function Material() {
       setLaunching(false)
     }
   }
+  async function aiParse(pieceId: number) {
+    setErr('')
+    setLaunching(true)
+    try {
+      await api(`/pieces/${pieceId}/start`, {})
+      load()
+    } catch (e) {
+      setErr((e as Error).message)
+    } finally {
+      setLaunching(false)
+    }
+  }
   async function requestJump(targetPieceId: number) {
     setErr('')
     try {
@@ -135,10 +147,10 @@ export default function Material() {
         <p className="mb-1 text-xs text-neutral-500">备注：{mat.user_note}</p>
       )}
       <p className="mb-3 text-xs text-neutral-400">
-        共 {chunks.length} 章 / {pieceCount} 节 · 共享积分 {points}。
-        <b>「AI 出题 + 邀请」</b>首次让 AI 出题（约 10–30s）然后邀请搭档；
-        通过一关后下一节会自动免费解锁。要直接跳到后面某一节，点那一节旁
-        <b>「跳到这里」</b>——固定 100 分/次（跳一节或十节都一样），需要搭档同意。
+        共 {chunks.length} 章 / {pieceCount} 节 · 共享积分 {points}。两步走：先点
+        <b>「AI 出题」</b>（约 10–30s），出完后按钮变 <b>「邀请搭档」</b>，
+        选玩法后给搭档发邀请，TA 接受才进入对局。通过一关后下一节自动免费解锁；
+        直接跳到后面某节点 <b>「跳到这里」</b>（固定 100 分/次，需搭档同意）。
       </p>
       {pendingJump && (
         <div className="mb-3 border border-amber-300 bg-amber-50 px-3 py-2 text-xs">
@@ -246,29 +258,30 @@ export default function Material() {
                               </>
                             )
                           })()
+                        ) : pc.parse_status === 'parsing' ? (
+                          <button
+                            disabled
+                            className="border border-neutral-400 px-3 py-1 text-xs text-neutral-500"
+                          >
+                            AI 出题中…
+                          </button>
+                        ) : pc.parse_status === 'pending' ? (
+                          <button
+                            onClick={() => aiParse(pc.id)}
+                            disabled={launching}
+                            className="border border-neutral-800 bg-neutral-800 px-3 py-1 text-white disabled:opacity-40"
+                            title="让 AI 解析本节并出题（约 10–30s）；出完才能邀请搭档"
+                          >
+                            {launching ? '出题中…' : 'AI 出题'}
+                          </button>
                         ) : (
-                          <>
-                            <button
-                              onClick={() => setPickFor(open ? null : pc.id)}
-                              disabled={pc.parse_status === 'parsing'}
-                              className="border border-neutral-800 bg-neutral-800 px-3 py-1 text-white disabled:opacity-40"
-                              title={
-                                pc.parse_status === 'parsing'
-                                  ? '搭档已经点过，AI 正在出题（约 10–30s），稍等'
-                                  : pc.parse_status === 'parsed'
-                                  ? '已出题，直接邀请'
-                                  : '首次会让 AI 出题（约 10–30s），然后邀请搭档'
-                              }
-                            >
-                              {pc.parse_status === 'parsing'
-                                ? 'AI 出题中…'
-                                : finished
-                                ? '再玩一次'
-                                : pc.parse_status === 'parsed'
-                                ? '邀请对玩'
-                                : 'AI 出题 + 邀请'}
-                            </button>
-                          </>
+                          <button
+                            onClick={() => setPickFor(open ? null : pc.id)}
+                            className="border border-neutral-800 bg-neutral-800 px-3 py-1 text-white"
+                            title="选玩法后给搭档发邀请，TA 接受才进对局"
+                          >
+                            {finished ? '再玩一次' : '邀请搭档'}
+                          </button>
                         )}
                       </div>
                     </div>
@@ -361,17 +374,11 @@ export default function Material() {
                       </div>
                     )}
 
-                    {/* 展开：选玩法 */}
-                    {open && (
+                    {/* 展开：选玩法（仅在已出题后） */}
+                    {open && pc.parse_status === 'parsed' && (
                       <div className="mt-3 space-y-2 border-t border-neutral-200 pt-3">
                         <div className="text-xs text-neutral-500">
-                          选玩法发起邀请（搭档接受才开始）
-                          {pc.parse_status !== 'parsed' && (
-                            <span className="ml-1 text-amber-700">
-                              · 本节还没出题，点下面任意玩法会先让 AI 出题（约 10–30s）
-                            </span>
-                          )}
-                          ：
+                          选玩法发起邀请（搭档接受才开始）：
                         </div>
                         {MODES.map((m) => (
                           <button
@@ -388,9 +395,7 @@ export default function Material() {
                         ))}
                         {launching && (
                           <p className="pt-1 text-xs text-neutral-500">
-                            {pc.parse_status === 'parsed'
-                              ? '建立邀请中…'
-                              : 'AI 出题中（10–30s），然后会自动跳到等待页…'}
+                            建立邀请中…
                           </p>
                         )}
                       </div>

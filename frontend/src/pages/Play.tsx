@@ -94,6 +94,18 @@ export default function Play() {
     }
   }
 
+  if (!st && err)
+    return (
+      <div>
+        <button
+          onClick={() => nav('/')}
+          className="text-sm text-neutral-500 underline"
+        >
+          ← 回首页
+        </button>
+        <p className="mt-3 text-sm text-red-600">{err}</p>
+      </div>
+    )
   if (!st) return <p className="text-sm text-neutral-500">加载中…</p>
 
   const headerLeft = (

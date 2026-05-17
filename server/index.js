@@ -486,17 +486,20 @@ app.get('/api/materials/:id', auth, (req, res) => {
         .get(p.id, pc.id)
       let resume = null
       if (playing) {
-        // 若双方都离开了（presence 都过期 30s+），就把这个对局关闭
+        // 若"双方都进入过对局又都过期了"才关闭——避免新邀请还没人拉就被误杀
         const STALE_MS = 30000
-        const fresh = (uid) => {
-          const t = db
+        const lastSeen = (uid) =>
+          db
             .prepare(
               'SELECT last_seen FROM session_presence WHERE session_id=? AND user_id=?',
             )
-            .get(playing.id, uid)?.last_seen
-          return t ? Date.now() - new Date(t).getTime() < STALE_MS : false
-        }
-        const bothOffline = !fresh(p.user_a) && !fresh(p.user_b)
+            .get(playing.id, uid)?.last_seen || null
+        const seenA = lastSeen(p.user_a)
+        const seenB = lastSeen(p.user_b)
+        const isStale = (t) =>
+          !t || Date.now() - new Date(t).getTime() >= STALE_MS
+        // 至少有一方曾进入过；并且两方都已过期/不在线 → 才视为双方离开
+        const bothOffline = (seenA || seenB) && isStale(seenA) && isStale(seenB)
         const dl = playing.deadline_at
           ? new Date(playing.deadline_at).getTime()
           : null
