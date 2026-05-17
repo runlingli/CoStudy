@@ -15,9 +15,14 @@ const MODES = [
     name: '不对称选择题',
     desc: '讲解者只看题干 / 选择者只看选项，合作答对',
   },
+  {
+    key: 'buzzer',
+    name: '抢答',
+    desc: '双方同时看题，先点抢答者作答；答错了搭档还有一次补救机会',
+  },
 ]
 const modeLabel = (m: string) =>
-  m === 'asymmetric_choice' ? '不对称' : '共答'
+  m === 'asymmetric_choice' ? '不对称' : m === 'buzzer' ? '抢答' : '共答'
 
 export default function Material() {
   const { id } = useParams()

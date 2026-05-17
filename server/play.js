@@ -35,8 +35,10 @@ function roleFor(session, partnership, userId) {
 // ============ A 发起邀请：建对局 → invited，等 B 接受 ============
 playRouter.post('/pieces/:id/play', auth, async (req, res, next) => {
   try {
-    const mode =
-      req.body?.mode === 'asymmetric_choice' ? 'asymmetric_choice' : 'co_choice'
+    const modeInput = req.body?.mode
+    const mode = ['asymmetric_choice', 'buzzer'].includes(modeInput)
+      ? modeInput
+      : 'co_choice'
     const p = myPartnership(req.userId)
     if (!p || p.status !== 'active')
       return res.status(400).json({ error: '请先绑定固定搭档' })
@@ -206,6 +208,61 @@ playRouter.get('/play/:sid', auth, (req, res) => {
   const full = fullQuestions(s.piece_id)
   const total = full.length
 
+  if (s.mode === 'buzzer') {
+    const q = full[s.cur_q] || {}
+    const buzzName = s.buzz_uid ? uname(s.buzz_uid) : null
+    const myAns = db
+      .prepare('SELECT choice,correct FROM play_answers WHERE session_id=? AND user_id=? AND q_index=?')
+      .get(s.id, req.userId, s.cur_q)
+    let reveal = null
+    if (s.cur_revealed) {
+      const answers = db
+        .prepare('SELECT user_id,choice,correct FROM play_answers WHERE session_id=? AND q_index=? ORDER BY rowid ASC')
+        .all(s.id, s.cur_q)
+      const first = answers[0] || null
+      const second = answers[1] || null
+      reveal = {
+        stem: q.stem,
+        options: q.options,
+        answer: q.answer,
+        explanation: q.explanation || '',
+        buzzName,
+        firstUser: first ? uname(first.user_id) : null,
+        firstChoice: first?.choice ?? null,
+        firstCorrect: first?.correct === 1,
+        secondUser: second ? uname(second.user_id) : null,
+        secondChoice: second?.choice ?? null,
+        secondCorrect: second?.correct === 1,
+      }
+    }
+    return res.json({
+      status: 'playing',
+      mode: s.mode,
+      role: 'player',
+      piece: {
+        id: piece.id,
+        title: piece.title,
+        material_id: piece.material_id,
+        source_url: piece.source_url || null,
+        content_text: piece.content_text || '',
+      },
+      curQ: s.cur_q,
+      total,
+      question: { stem: q.stem, options: q.options },
+      buzzUid: s.buzz_uid || null,
+      buzzName,
+      iAmBuzzer: s.buzz_uid === req.userId,
+      buzzWrong: !!s.buzz_wrong,
+      myChoice: myAns?.choice ?? null,
+      revealed: !!s.cur_revealed,
+      reveal,
+      peerName,
+      peerOnline,
+      peerLastSeenSec,
+      deadline_at: s.deadline_at || null,
+    })
+  }
+
   if (s.mode === 'asymmetric_choice') {
     // 一题一揭：A 看题干 + 选 A/B/C/D（盲选，依赖搭档报选项）；B 看选项不作答
     const q = full[s.cur_q] || {}
@@ -291,6 +348,21 @@ playRouter.get('/play/:sid', auth, (req, res) => {
   })
 })
 
+// ============ 抢答（buzzer 专用） ============
+playRouter.post('/play/:sid/buzz', auth, (req, res) => {
+  let s = db.prepare('SELECT * FROM play_sessions WHERE id=?').get(req.params.sid)
+  if (!s) return res.status(404).json({ error: '对局不存在' })
+  const p = myPartnership(req.userId)
+  if (!p || s.partnership_id !== p.id) return res.status(403).json({ error: '无权访问' })
+  if (s.mode !== 'buzzer') return res.status(400).json({ error: '该玩法不支持抢答' })
+  s = autoFinalizeIfTimedOut(s, p)
+  if (s.status !== 'playing') return res.status(400).json({ error: '对局未在进行中' })
+  if (s.buzz_uid) return res.status(400).json({ error: '已有人抢答' })
+  if (s.cur_revealed) return res.status(400).json({ error: '本题已揭晓' })
+  db.prepare('UPDATE play_sessions SET buzz_uid=? WHERE id=?').run(req.userId, s.id)
+  return res.json({ ok: true })
+})
+
 // ============ 作答 ============
 playRouter.post('/play/:sid/answer', auth, (req, res) => {
   let s = db.prepare('SELECT * FROM play_sessions WHERE id=?').get(req.params.sid)
@@ -303,6 +375,29 @@ playRouter.post('/play/:sid/answer', auth, (req, res) => {
     return res.status(400).json({ error: '对局不可作答（可能已超时或结束）' })
   const r = rolesOf(p)
   const full = fullQuestions(s.piece_id)
+
+  if (s.mode === 'buzzer') {
+    if (!s.buzz_uid) return res.status(400).json({ error: '请先抢答' })
+    if (s.cur_revealed) return res.status(400).json({ error: '本题已揭晓' })
+    const isFirstBuzzer = s.buzz_uid === req.userId
+    const isSecondChance = !isFirstBuzzer && !!s.buzz_wrong
+    if (!isFirstBuzzer && !isSecondChance)
+      return res.status(400).json({ error: '等搭档答完（答错时轮到你）' })
+    const { qIndex, choice } = req.body || {}
+    if (qIndex !== s.cur_q) return res.status(400).json({ error: '请回答当前题' })
+    if (!Number.isInteger(choice) || choice < 0 || choice > 3)
+      return res.status(400).json({ error: '参数错误' })
+    const correct = full[s.cur_q].answer === choice ? 1 : 0
+    db.prepare(
+      'INSERT OR REPLACE INTO play_answers(session_id,user_id,q_index,choice,correct) VALUES(?,?,?,?,?)',
+    ).run(s.id, req.userId, s.cur_q, choice, correct)
+    if (correct || isSecondChance) {
+      db.prepare('UPDATE play_sessions SET cur_revealed=1 WHERE id=?').run(s.id)
+    } else {
+      db.prepare('UPDATE play_sessions SET buzz_wrong=1 WHERE id=?').run(s.id)
+    }
+    return res.json({ ok: true })
+  }
 
   if (s.mode === 'asymmetric_choice') {
     if (req.userId !== r.narrator)
@@ -333,7 +428,7 @@ playRouter.post('/play/:sid/answer', auth, (req, res) => {
   res.json({ ok: true })
 })
 
-// ============ 下一题（不对称专用） ============
+// ============ 下一题（不对称 / 抢答 专用） ============
 playRouter.post('/play/:sid/next', auth, (req, res) => {
   let s = db.prepare('SELECT * FROM play_sessions WHERE id=?').get(req.params.sid)
   if (!s) return res.status(404).json({ error: '对局不存在' })
@@ -341,18 +436,18 @@ playRouter.post('/play/:sid/next', auth, (req, res) => {
   if (!p || s.partnership_id !== p.id)
     return res.status(403).json({ error: '无权访问' })
   s = autoFinalizeIfTimedOut(s, p)
-  if (s.mode !== 'asymmetric_choice')
+  if (s.mode !== 'asymmetric_choice' && s.mode !== 'buzzer')
     return res.status(400).json({ error: '该玩法不需要逐题推进' })
   if (s.status !== 'playing' || !s.cur_revealed)
     return res.status(400).json({ error: '当前题尚未揭晓或已超时' })
   const full = fullQuestions(s.piece_id)
   const nextQ = s.cur_q + 1
   if (nextQ >= full.length) {
-    const result = finalizeAsymmetric(s, p)
+    const result = s.mode === 'buzzer' ? finalizeBuzzer(s, p) : finalizeAsymmetric(s, p)
     return res.json({ result })
   }
   db.prepare(
-    'UPDATE play_sessions SET cur_q=?, cur_revealed=0 WHERE id=?',
+    'UPDATE play_sessions SET cur_q=?, cur_revealed=0, buzz_uid=NULL, buzz_wrong=0 WHERE id=?',
   ).run(nextQ, s.id)
   res.json({ ok: true, curQ: nextQ })
 })
@@ -411,6 +506,38 @@ function finalizeAsymmetric(s, p) {
   return result
 }
 
+function finalizeBuzzer(s, p) {
+  const full = fullQuestions(s.piece_id)
+  const total = full.length
+  const scoreA = scoreUser(s.id, p.user_a, total)
+  const scoreB = scoreUser(s.id, p.user_b, total)
+  const totalCorrect = scoreA.correct + scoreB.correct
+  const pct = total ? Math.round((totalCorrect / total) * 100) : 0
+  const grade = pct >= 90 ? 'S' : pct >= 70 ? 'A' : pct >= 50 ? 'B' : 'C'
+  const result = {
+    mode: s.mode,
+    total,
+    players: [
+      { name: uname(p.user_a), correct: scoreA.correct },
+      { name: uname(p.user_b), correct: scoreB.correct },
+    ],
+    totalCorrect,
+    pct,
+    grade,
+    message: `合计答对 ${totalCorrect}/${total}（${uname(p.user_a)} ${scoreA.correct} 题，${uname(p.user_b)} ${scoreB.correct} 题）`,
+    reveal: buildReveal(s.id, full),
+  }
+  const pointsAwarded = 100 + 10 * totalCorrect
+  result.pointsAwarded = pointsAwarded
+  result.points = addPoints(p.id, pointsAwarded)
+  db.prepare(
+    "UPDATE play_sessions SET status='finished', result_json=? WHERE id=?",
+  ).run(JSON.stringify(result), s.id)
+  const piece = db.prepare('SELECT * FROM pieces WHERE id=?').get(s.piece_id)
+  result.nextUnlocked = completePiece(p.id, piece, false)
+  return result
+}
+
 // 超时自动结算：到点后任意一次 GET / 动作都会触发这里
 function autoFinalizeIfTimedOut(s, p) {
   if (s.status !== 'playing' || !s.deadline_at) return s
@@ -430,6 +557,22 @@ function autoFinalizeIfTimedOut(s, p) {
       grade: 'C',
       timedOut: true,
       message: `时间到，本关失败 · 已答对 ${nar.correct}/${total}`,
+      reveal: buildReveal(s.id, full),
+    }
+  } else if (s.mode === 'buzzer') {
+    const a = scoreUser(s.id, p.user_a, total)
+    const b = scoreUser(s.id, p.user_b, total)
+    result = {
+      mode: s.mode,
+      total,
+      timedOut: true,
+      players: [
+        { name: uname(p.user_a), correct: a.correct },
+        { name: uname(p.user_b), correct: b.correct },
+      ],
+      totalCorrect: a.correct + b.correct,
+      grade: 'C',
+      message: '时间到，本关失败',
       reveal: buildReveal(s.id, full),
     }
   } else {

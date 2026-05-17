@@ -520,7 +520,7 @@ app.get('/api/materials/:id', auth, (req, res) => {
           const totalQ = db
             .prepare('SELECT COUNT(*) n FROM questions WHERE piece_id=?')
             .get(pc.id).n
-          if (playing.mode === 'asymmetric_choice') {
+          if (playing.mode === 'asymmetric_choice' || playing.mode === 'buzzer') {
             // 同步推进：两人共享 cur_q；已完成题数 = cur_q（+1 如果当前题已揭晓）
             const progress = playing.cur_q + (playing.cur_revealed ? 1 : 0)
             resume = {

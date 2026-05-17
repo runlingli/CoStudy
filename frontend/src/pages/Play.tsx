@@ -75,6 +75,24 @@ export default function Play() {
       setErr((e as Error).message)
     }
   }
+  async function buzz() {
+    setErr('')
+    try {
+      await api(`/play/${sid}/buzz`, {})
+      poll()
+    } catch (e) {
+      setErr((e as Error).message)
+    }
+  }
+  async function submitBuzz(choice: number) {
+    setErr('')
+    try {
+      await api(`/play/${sid}/answer`, { qIndex: st.curQ, choice })
+      poll()
+    } catch (e) {
+      setErr((e as Error).message)
+    }
+  }
   async function answerCo(qi: number, choice: number) {
     setCoPicks((m) => ({ ...m, [qi]: choice }))
     try {
@@ -177,6 +195,15 @@ export default function Play() {
               ))}
               <div className="mt-2 text-neutral-500">
                 平均 {r.avg} · 分差 {r.gap}（按分差封顶 {r.capByGap}）
+              </div>
+            </div>
+          ) : r.mode === 'buzzer' ? (
+            <div className="mt-3 text-sm">
+              {r.players.map((p: any) => (
+                <div key={p.name}>{p.name}：{p.correct} 题</div>
+              ))}
+              <div className="mt-2 text-neutral-500">
+                合计答对 {r.totalCorrect}/{r.total}
               </div>
             </div>
           ) : (
@@ -454,6 +481,151 @@ export default function Play() {
                 </button>
               )}
             </div>
+          </div>
+        </div>
+        {err && <p className="mt-3 text-sm text-red-600">{err}</p>}
+      </div>
+    )
+  }
+
+  // ============ 进行中 · 抢答 ============
+  if (st.mode === 'buzzer') {
+    const q = st.question || {}
+    const LABELS = ['A', 'B', 'C', 'D']
+    const reveal = st.reveal
+    const nobodyBuzzed = !st.buzzUid && !st.revealed
+    const iAmBuzzer = st.iAmBuzzer
+    const peerBuzzedFirst = !!st.buzzUid && !st.iAmBuzzer
+    const myTurnSecond = peerBuzzedFirst && st.buzzWrong && !st.revealed
+    const waitingForPeer = peerBuzzedFirst && !st.buzzWrong && !st.revealed
+    const iAnsweredWrong = iAmBuzzer && st.buzzWrong && !st.revealed
+    return (
+      <div>
+        <div className="mb-3 flex items-center justify-between">
+          {headerLeft}
+          {headerRight}
+        </div>
+        {offlineBanner}
+        <div className="mb-3 text-xs text-neutral-500">
+          第 {st.curQ + 1} / {st.total} 题 · 抢答
+        </div>
+        <div className="grid gap-4 md:grid-cols-10">
+          {sourcePanel}
+          <div className="md:col-span-3 space-y-3 border border-neutral-300 p-4 text-sm">
+            <div className="text-base">{q.stem}</div>
+
+            {nobodyBuzzed && (
+              <>
+                <ul className="space-y-1 text-neutral-600">
+                  {(q.options || []).map((o: string, oi: number) => (
+                    <li key={oi}><b>{LABELS[oi]}.</b> {o}</li>
+                  ))}
+                </ul>
+                <button
+                  onClick={buzz}
+                  className="w-full border-2 border-neutral-800 bg-neutral-800 py-3 text-base font-semibold text-white"
+                >
+                  抢答！
+                </button>
+              </>
+            )}
+
+            {iAmBuzzer && !iAnsweredWrong && !reveal && (
+              <>
+                <div className="text-xs font-medium text-green-700">你抢到了，快选答案：</div>
+                <div>
+                  {(q.options || []).map((o: string, oi: number) => (
+                    <label key={oi} className="block py-1">
+                      <input
+                        type="radio"
+                        name="buzz_ans"
+                        className="mr-2"
+                        checked={st.myChoice === oi}
+                        onChange={() => submitBuzz(oi)}
+                      />
+                      <b>{LABELS[oi]}.</b> {o}
+                    </label>
+                  ))}
+                </div>
+              </>
+            )}
+
+            {iAnsweredWrong && (
+              <div className="text-xs text-red-600">
+                你答错了，等 {st.peerName} 补救…
+              </div>
+            )}
+
+            {waitingForPeer && (
+              <>
+                <div className="text-xs text-amber-700">{st.buzzName} 抢答了，等 TA 选…</div>
+                <ul className="space-y-1 text-neutral-400">
+                  {(q.options || []).map((o: string, oi: number) => (
+                    <li key={oi}><b>{LABELS[oi]}.</b> {o}</li>
+                  ))}
+                </ul>
+              </>
+            )}
+
+            {myTurnSecond && (
+              <>
+                <div className="text-xs font-medium text-amber-700">
+                  {st.buzzName} 答错了，轮到你补救！
+                </div>
+                <div>
+                  {(q.options || []).map((o: string, oi: number) => (
+                    <label key={oi} className="block py-1">
+                      <input
+                        type="radio"
+                        name="buzz_ans"
+                        className="mr-2"
+                        checked={st.myChoice === oi}
+                        onChange={() => submitBuzz(oi)}
+                      />
+                      <b>{LABELS[oi]}.</b> {o}
+                    </label>
+                  ))}
+                </div>
+              </>
+            )}
+
+            {reveal && (
+              <div className="border-t border-neutral-200 pt-3 space-y-1">
+                <div className="font-medium">
+                  {reveal.firstCorrect
+                    ? <span className="text-green-700">{reveal.firstUser} 抢答正确 ✓</span>
+                    : reveal.secondUser
+                    ? reveal.secondCorrect
+                      ? <span><span className="text-red-600">{reveal.firstUser} 答错</span>，<span className="text-green-700">{reveal.secondUser} 补救成功 ✓</span></span>
+                      : <span className="text-red-600">{reveal.firstUser} 和 {reveal.secondUser} 都答错了 ✗</span>
+                    : <span className="text-red-600">{reveal.firstUser} 答错，无人补救 ✗</span>
+                  }
+                </div>
+                {reveal.options.map((o: string, oi: number) => (
+                  <div
+                    key={oi}
+                    className={
+                      oi === reveal.answer ? 'text-green-700'
+                      : oi === reveal.firstChoice && !reveal.firstCorrect ? 'text-red-500 line-through'
+                      : oi === reveal.secondChoice && !reveal.secondCorrect ? 'text-red-500 line-through'
+                      : 'text-neutral-500'
+                    }
+                  >
+                    {oi === reveal.answer ? '✓ ' : '　'}
+                    <b>{LABELS[oi]}.</b> {o}
+                  </div>
+                ))}
+                {reveal.explanation && (
+                  <p className="pt-1 text-xs text-neutral-500">{reveal.explanation}</p>
+                )}
+                <button
+                  onClick={nextQ}
+                  className="mt-3 border border-neutral-800 bg-neutral-800 px-4 py-2 text-white"
+                >
+                  {st.curQ + 1 >= st.total ? '结算本关' : '下一题 →'}
+                </button>
+              </div>
+            )}
           </div>
         </div>
         {err && <p className="mt-3 text-sm text-red-600">{err}</p>}
