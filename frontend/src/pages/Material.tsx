@@ -66,15 +66,6 @@ export default function Material() {
       setLaunching(false)
     }
   }
-  async function callPiece(pieceId: number, path: string) {
-    setErr('')
-    try {
-      await api(`/pieces/${pieceId}/${path}`, {})
-      load()
-    } catch (e) {
-      setErr((e as Error).message)
-    }
-  }
   async function requestJump(targetPieceId: number) {
     setErr('')
     try {
@@ -145,10 +136,9 @@ export default function Material() {
       )}
       <p className="mb-3 text-xs text-neutral-400">
         共 {chunks.length} 章 / {pieceCount} 节 · 共享积分 {points}。
-        <b>「AI 出题 + 邀请」</b>
-        首次让 AI 出题（约 10–30s）然后邀请搭档；
-        <b>「提议跳过」</b>下一节免费、需对方同意；
-        要直接跳到某一节，点那一节旁的 <b>「跳到这里」</b>，按节数扣积分。
+        <b>「AI 出题 + 邀请」</b>首次让 AI 出题（约 10–30s）然后邀请搭档；
+        通过一关后下一节会自动免费解锁。要直接跳到后面某一节，点那一节旁
+        <b>「跳到这里」</b>，按跳过节数扣 100/节，并需要搭档同意。
       </p>
       {pendingJump && (
         <div className="mb-3 border border-amber-300 bg-amber-50 px-3 py-2 text-xs">
@@ -269,15 +259,6 @@ export default function Material() {
                                 ? '邀请对玩'
                                 : 'AI 出题 + 邀请'}
                             </button>
-                            {!finished && !pc.pending_skip && !pc.pending_invite && (
-                              <button
-                                onClick={() => callPiece(pc.id, 'skip/request')}
-                                className="border border-neutral-400 px-3 py-1 text-neutral-600"
-                                title="跳过这一节（需搭档同意）"
-                              >
-                                提议跳过
-                              </button>
-                            )}
                           </>
                         )}
                       </div>
@@ -345,40 +326,6 @@ export default function Material() {
                                 className="border border-neutral-400 px-3 py-1"
                               >
                                 拒绝
-                              </button>
-                            </div>
-                          </>
-                        )}
-                      </div>
-                    )}
-
-                    {pc.pending_skip && !finished && (
-                      <div className="mt-2 flex items-center justify-between gap-2 border border-neutral-300 bg-neutral-50 px-3 py-2 text-xs">
-                        {pc.pending_skip.from_me ? (
-                          <>
-                            <span>已提议跳过本节，等搭档同意…</span>
-                            <button
-                              onClick={() => callPiece(pc.id, 'skip/cancel')}
-                              className="text-neutral-500 underline"
-                            >
-                              取消提议
-                            </button>
-                          </>
-                        ) : (
-                          <>
-                            <span>搭档提议跳过本节</span>
-                            <div className="flex gap-2">
-                              <button
-                                onClick={() => callPiece(pc.id, 'skip/approve')}
-                                className="border border-neutral-800 bg-neutral-800 px-3 py-1 text-white"
-                              >
-                                同意
-                              </button>
-                              <button
-                                onClick={() => callPiece(pc.id, 'skip/decline')}
-                                className="border border-neutral-400 px-3 py-1"
-                              >
-                                不同意
                               </button>
                             </div>
                           </>
