@@ -282,9 +282,9 @@ export default function Material() {
                         <span>
                           ⏯ 对局进行中（
                           {modeLabel(pc.pending_resume.mode)}）：
-                          {pc.pending_resume.mode === 'asymmetric_choice'
+                          {pc.pending_resume.progress != null
                             ? `进度 ${pc.pending_resume.progress}/${pc.pending_resume.total}`
-                            : `我 ${pc.pending_resume.mine_done}/${pc.pending_resume.total} · 搭档 ${pc.pending_resume.peer_done}/${pc.pending_resume.total}`}
+                            : `我 ${pc.pending_resume.mine_done ?? 0}/${pc.pending_resume.total} · 搭档 ${pc.pending_resume.peer_done ?? 0}/${pc.pending_resume.total}`}
                         </span>
                         <span className="text-blue-700 underline">
                           继续 →

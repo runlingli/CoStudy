@@ -486,10 +486,34 @@ app.get('/api/materials/:id', auth, (req, res) => {
         .get(p.id, pc.id)
       let resume = null
       if (playing) {
+        // 若双方都离开了（presence 都过期 30s+），就把这个对局关闭
+        const STALE_MS = 30000
+        const fresh = (uid) => {
+          const t = db
+            .prepare(
+              'SELECT last_seen FROM session_presence WHERE session_id=? AND user_id=?',
+            )
+            .get(playing.id, uid)?.last_seen
+          return t ? Date.now() - new Date(t).getTime() < STALE_MS : false
+        }
+        const bothOffline = !fresh(p.user_a) && !fresh(p.user_b)
         const dl = playing.deadline_at
           ? new Date(playing.deadline_at).getTime()
           : null
-        if (!dl || dl > Date.now()) {
+        if (bothOffline) {
+          db.prepare(
+            "UPDATE play_sessions SET status='finished', result_json=? WHERE id=?",
+          ).run(
+            JSON.stringify({
+              mode: playing.mode,
+              total: 0,
+              abandoned: true,
+              grade: 'C',
+              message: '双方都离开了，对局已关闭',
+            }),
+            playing.id,
+          )
+        } else if (!dl || dl > Date.now()) {
           const totalQ = db
             .prepare('SELECT COUNT(*) n FROM questions WHERE piece_id=?')
             .get(pc.id).n
