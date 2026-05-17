@@ -1,0 +1,317 @@
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { useParams, Link, useNavigate } from 'react-router-dom'
+import { api } from '../api'
+
+/* eslint-disable @typescript-eslint/no-explicit-any */
+
+const MODES = [
+  {
+    key: 'co_choice',
+    name: '共答选择题',
+    desc: '双方各自答同一批题，按"分差更重要"评 S/A/B/C',
+  },
+  {
+    key: 'asymmetric_choice',
+    name: '不对称选择题',
+    desc: '讲解者只看题干 / 选择者只看选项，合作答对',
+  },
+]
+const modeLabel = (m: string) =>
+  m === 'asymmetric_choice' ? '不对称' : '共答'
+
+export default function Material() {
+  const { id } = useParams()
+  const nav = useNavigate()
+  const [mat, setMat] = useState<any>(null)
+  const [chunks, setChunks] = useState<any[]>([])
+  const [pickFor, setPickFor] = useState<number | null>(null)
+  const [launching, setLaunching] = useState(false)
+  const [err, setErr] = useState('')
+  const stoppedRef = useRef(false)
+
+  const load = useCallback(() => {
+    api(`/materials/${id}`)
+      .then((d) => {
+        setMat(d.material)
+        setChunks(d.chunks || [])
+      })
+      .catch((e) => {
+        setErr((e as Error).message)
+        stoppedRef.current = true
+      })
+  }, [id])
+  useEffect(() => {
+    load()
+    const t = setInterval(() => {
+      if (!stoppedRef.current) load()
+    }, 3000)
+    return () => clearInterval(t)
+  }, [load])
+
+  async function launch(pieceId: number, mode: string) {
+    setErr('')
+    setLaunching(true)
+    try {
+      const d = await api(`/pieces/${pieceId}/play`, { mode })
+      nav(`/play/${d.sessionId}`)
+    } catch (e) {
+      setErr((e as Error).message)
+    } finally {
+      setLaunching(false)
+    }
+  }
+  async function callPiece(pieceId: number, path: string) {
+    setErr('')
+    try {
+      await api(`/pieces/${pieceId}/${path}`, {})
+      load()
+    } catch (e) {
+      setErr((e as Error).message)
+    }
+  }
+  async function delMaterial() {
+    if (!confirm(`删除「${mat?.title}」？所有进度、对局、题目都会清掉。`)) return
+    try {
+      await api(`/materials/${id}`, undefined, 'DELETE')
+      stoppedRef.current = true
+      nav('/')
+    } catch (e) {
+      setErr((e as Error).message)
+    }
+  }
+
+  const stateLabel = (s: string) =>
+    s === 'done'
+      ? '已完成'
+      : s === 'skipped'
+      ? '已跳过'
+      : s === 'available'
+      ? '可学习'
+      : '未解锁'
+
+  if (err && !mat)
+    return (
+      <div>
+        <Link to="/" className="text-sm text-neutral-500 underline">
+          ← 回首页
+        </Link>
+        <p className="mt-3 text-sm text-red-600">{err}</p>
+      </div>
+    )
+  if (!mat) return <p className="text-sm text-neutral-500">加载中…</p>
+
+  const pieceCount = chunks.reduce((n, c) => n + c.pieces.length, 0)
+
+  return (
+    <div>
+      <div className="flex items-center justify-between">
+        <Link to="/" className="text-sm text-neutral-500 underline">
+          ← 首页
+        </Link>
+        <button
+          onClick={delMaterial}
+          className="text-xs text-red-600 hover:underline"
+        >
+          删除此资料
+        </button>
+      </div>
+      <h2 className="mt-2 text-base font-semibold">{mat.title}</h2>
+      {mat.user_note && (
+        <p className="mb-1 text-xs text-neutral-500">备注：{mat.user_note}</p>
+      )}
+      <p className="mb-4 text-xs text-neutral-400">
+        共 {chunks.length} 章 / {pieceCount} 节。点开节就走真题（AI 出，首次 10–30s）；
+        想跳过的可以"提议跳过"，对方同意后自动解锁下一节。
+      </p>
+      {err && <p className="mb-3 text-sm text-red-600">{err}</p>}
+
+      <div className="space-y-5">
+        {chunks.map((ch) => (
+          <section key={ch.id} className="border border-neutral-300">
+            <div className="border-b border-neutral-200 bg-neutral-50 px-4 py-2 text-sm font-semibold">
+              {ch.seq}. {ch.title}
+              <span className="ml-2 text-xs font-normal text-neutral-400">
+                {ch.pieces.length} 节
+              </span>
+            </div>
+            <ul>
+              {ch.pieces.map((pc: any) => {
+                const open = pickFor === pc.id
+                const locked = pc.state === 'locked'
+                const finished = pc.state === 'done' || pc.state === 'skipped'
+                return (
+                  <li
+                    key={pc.id}
+                    className="border-b border-neutral-100 px-4 py-3 text-sm last:border-b-0"
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="min-w-0">
+                        <span className="text-neutral-400">{pc.seq}.</span>{' '}
+                        {pc.title}
+                        <span className="ml-2 text-xs text-neutral-400">
+                          [{stateLabel(pc.state)}]
+                        </span>
+                      </div>
+                      <div className="shrink-0">
+                        {locked ? (
+                          <span className="text-xs text-neutral-400">🔒</span>
+                        ) : (
+                          <button
+                            onClick={() =>
+                              setPickFor(open ? null : pc.id)
+                            }
+                            className="border border-neutral-400 px-3 py-1"
+                          >
+                            {finished ? '再玩' : '开始'}
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* 待办行：邀请 / 跳过 */}
+                    {pc.pending_invite && (
+                      <div className="mt-2 flex items-center justify-between gap-2 border border-amber-300 bg-amber-50 px-3 py-2 text-xs">
+                        {pc.pending_invite.from_me ? (
+                          <>
+                            <span>
+                              已发出邀请（{modeLabel(pc.pending_invite.mode)}）
+                              ，等搭档接受…
+                            </span>
+                            <div className="flex gap-2">
+                              <Link
+                                to={`/play/${pc.pending_invite.session_id}`}
+                                className="underline"
+                              >
+                                进等待页
+                              </Link>
+                              <button
+                                onClick={async () => {
+                                  await api(
+                                    `/play/${pc.pending_invite.session_id}/cancel`,
+                                    {},
+                                  )
+                                  load()
+                                }}
+                                className="text-neutral-500 underline"
+                              >
+                                撤销
+                              </button>
+                            </div>
+                          </>
+                        ) : (
+                          <>
+                            <span>
+                              搭档邀请你玩（
+                              {modeLabel(pc.pending_invite.mode)}）
+                            </span>
+                            <div className="flex gap-2">
+                              <button
+                                onClick={async () => {
+                                  await api(
+                                    `/play/${pc.pending_invite.session_id}/accept`,
+                                    {},
+                                  )
+                                  nav(
+                                    `/play/${pc.pending_invite.session_id}`,
+                                  )
+                                }}
+                                className="border border-neutral-800 bg-neutral-800 px-3 py-1 text-white"
+                              >
+                                接受
+                              </button>
+                              <button
+                                onClick={async () => {
+                                  await api(
+                                    `/play/${pc.pending_invite.session_id}/cancel`,
+                                    {},
+                                  )
+                                  load()
+                                }}
+                                className="border border-neutral-400 px-3 py-1"
+                              >
+                                拒绝
+                              </button>
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    )}
+
+                    {pc.pending_skip && !finished && (
+                      <div className="mt-2 flex items-center justify-between gap-2 border border-neutral-300 bg-neutral-50 px-3 py-2 text-xs">
+                        {pc.pending_skip.from_me ? (
+                          <>
+                            <span>已提议跳过本节，等搭档同意…</span>
+                            <button
+                              onClick={() => callPiece(pc.id, 'skip/cancel')}
+                              className="text-neutral-500 underline"
+                            >
+                              取消提议
+                            </button>
+                          </>
+                        ) : (
+                          <>
+                            <span>搭档提议跳过本节</span>
+                            <div className="flex gap-2">
+                              <button
+                                onClick={() => callPiece(pc.id, 'skip/approve')}
+                                className="border border-neutral-800 bg-neutral-800 px-3 py-1 text-white"
+                              >
+                                同意
+                              </button>
+                              <button
+                                onClick={() => callPiece(pc.id, 'skip/decline')}
+                                className="border border-neutral-400 px-3 py-1"
+                              >
+                                不同意
+                              </button>
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    )}
+
+                    {/* 展开：选玩法 / 提议跳过 */}
+                    {open && (
+                      <div className="mt-3 space-y-2 border-t border-neutral-200 pt-3">
+                        <div className="text-xs text-neutral-500">
+                          发起邀请（搭档要接受才开始）：
+                        </div>
+                        {MODES.map((m) => (
+                          <button
+                            key={m.key}
+                            disabled={launching}
+                            onClick={() => launch(pc.id, m.key)}
+                            className="block w-full border border-neutral-300 px-3 py-2 text-left hover:bg-neutral-50 disabled:opacity-40"
+                          >
+                            <div className="font-medium">{m.name}</div>
+                            <div className="text-xs text-neutral-500">
+                              {m.desc}
+                            </div>
+                          </button>
+                        ))}
+                        {launching && (
+                          <p className="pt-1 text-xs text-neutral-500">
+                            发起中…首次还会触发 AI 出题（10–30s），下次秒进。
+                          </p>
+                        )}
+                        {!finished && !pc.pending_skip && (
+                          <button
+                            onClick={() => callPiece(pc.id, 'skip/request')}
+                            className="mt-1 text-xs text-neutral-500 underline"
+                          >
+                            或：提议跳过此节（让搭档同意）
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </li>
+                )
+              })}
+            </ul>
+          </section>
+        ))}
+      </div>
+    </div>
+  )
+}

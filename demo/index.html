@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CoStudy — 页面清单 Demo（素）</title>
+<style>
+  body { font-family: system-ui, sans-serif; color: #222; margin: 0; line-height: 1.6; }
+  header { padding: 24px; border-bottom: 1px solid #ccc; }
+  header h1 { margin: 0 0 4px; font-size: 18px; }
+  header p { margin: 0; color: #666; font-size: 13px; }
+  nav { padding: 16px 24px; border-bottom: 1px solid #ccc; font-size: 13px; }
+  nav a { color: #444; margin-right: 14px; text-decoration: none; }
+  nav a:hover { text-decoration: underline; }
+  main { padding: 24px; max-width: 760px; }
+  section { border: 1px solid #bbb; padding: 18px 20px; margin-bottom: 22px; }
+  section h2 { margin: 0 0 2px; font-size: 16px; }
+  section .purpose { color: #666; font-size: 13px; margin: 0 0 14px; }
+  .box { border: 1px dashed #999; color: #777; font-size: 13px;
+         padding: 14px; margin-top: 8px; background: #fafafa; }
+  .box b { color: #444; }
+  footer { padding: 24px; color: #999; font-size: 12px; border-top: 1px solid #ccc; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>CoStudy — 页面清单 Demo</h1>
+  <p>素线框：只展示规划里有哪些页面、各自放什么内容。无功能、无组件、无交互。</p>
+</header>
+
+<nav>
+  <a href="#p1">1 首页</a>
+  <a href="#p2">2 上传</a>
+  <a href="#p3">3 处理中</a>
+  <a href="#p4">4 学习视图</a>
+  <a href="#p5">5 创建房间</a>
+  <a href="#p6">6 等待就绪</a>
+  <a href="#p7">7 闯关·讲解者</a>
+  <a href="#p8">8 闯关·选择者</a>
+  <a href="#p9">9 本关揭晓</a>
+  <a href="#p10">10 结算页</a>
+</nav>
+
+<main>
+
+  <section id="p1">
+    <h2>1. 首页 / 我的资料</h2>
+    <p class="purpose">入口，看已有学习包，进入上传或建房。</p>
+    <div class="box"><b>占位：</b> 资料包列表 · 「上传资料」入口 · 「创建房间」入口</div>
+  </section>
+
+  <section id="p2">
+    <h2>2. 上传资料</h2>
+    <p class="purpose">把视频/音频/PDF/文本/MD/图片传成一个学习包。</p>
+    <div class="box"><b>占位：</b> 文件选择区 · 已选文件清单 · 学习包标题</div>
+  </section>
+
+  <section id="p3">
+    <h2>3. 资料处理中</h2>
+    <p class="purpose">解析 / 转录 / 出题进度，不让人干等。</p>
+    <div class="box"><b>占位：</b> 各文件状态（解析中 / 转录中 / 出题中）· 总进度</div>
+  </section>
+
+  <section id="p4">
+    <h2>4. 资料详情 / 学习视图</h2>
+    <p class="purpose">视频音频重点：逐字转录 与 AI 总结 并列，可互跳。</p>
+    <div class="box">
+      <b>占位（左右两块，并列、不互相替代）：</b><br>
+      左：逐字转录（带时间戳）<br>
+      右：AI 总结（一句话 / 大纲 / 要点 / 术语表，要点可回链原片）
+    </div>
+  </section>
+
+  <section id="p5">
+    <h2>5. 创建房间 / 邀请搭档</h2>
+    <p class="purpose">选资料建房，把邀请发给搭档。</p>
+    <div class="box"><b>占位：</b> 选择资料包 · 房间邀请链接 · 等待对方加入</div>
+  </section>
+
+  <section id="p6">
+    <h2>6. 房间 — 等待就绪</h2>
+    <p class="purpose">两人都「准备好」才能开始。</p>
+    <div class="box"><b>占位：</b> 双方在场状态 · 各自就绪状态 · 开始入口</div>
+  </section>
+
+  <section id="p7">
+    <h2>7. 闯关中 — 讲解者视角</h2>
+    <p class="purpose">只看到题干，看不到选项；要讲给对方听。</p>
+    <div class="box">
+      <b>占位：</b> 题干区（仅此可见）· 对方状态提示（正在选择…）·
+      关卡进度 / 限时 / 我的角色=讲解者
+    </div>
+  </section>
+
+  <section id="p8">
+    <h2>8. 闯关中 — 选择者视角</h2>
+    <p class="purpose">只看到四个选项，看不到题干；听讲解后选。</p>
+    <div class="box">
+      <b>占位：</b> 四个选项区（仅此可见）· 对方状态提示（正在讲解…）·
+      关卡进度 / 限时 / 我的角色=选择者
+    </div>
+  </section>
+
+  <section id="p9">
+    <h2>9. 本关揭晓</h2>
+    <p class="purpose">共同结果（不归咎个人）+ 回链原文/原片。</p>
+    <div class="box">
+      <b>占位：</b> 对错（框定为「你们…」）· 这题出自原文/视频时间点 ·
+      失败时鼓励语 + 可选提示
+    </div>
+  </section>
+
+  <section id="p10">
+    <h2>10. 结算页</h2>
+    <p class="purpose">成就感所在：共同战果与沉淀。</p>
+    <div class="box">
+      <b>占位：</b> 进度 / combo / 用时 / 攻克知识点数 · 默契值 ·
+      徽章 · 共同学习报告（可回链）· 复访钩子
+    </div>
+  </section>
+
+</main>
+
+<footer>
+  CoStudy · 页面清单 Demo · 详见 docs/PLAN-DESIGN.md
+</footer>
+
+</body>
+</html>
