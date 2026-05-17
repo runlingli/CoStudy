@@ -103,6 +103,9 @@ playRouter.post('/play/:sid/cancel', auth, (req, res) => {
   res.json({ ok: true })
 })
 
+// 是否在线：peer 最近一次拉 /play 的时间在 PRESENCE_WINDOW 内
+const PRESENCE_WINDOW_MS = 8000
+
 // ============ 对局状态（轮询，按角色裁剪） ============
 playRouter.get('/play/:sid', auth, (req, res) => {
   const s = db.prepare('SELECT * FROM play_sessions WHERE id=?').get(req.params.sid)
@@ -110,6 +113,10 @@ playRouter.get('/play/:sid', auth, (req, res) => {
   const p = myPartnership(req.userId)
   if (!p || s.partnership_id !== p.id)
     return res.status(403).json({ error: '无权访问' })
+  // 心跳：标记我"在线"
+  db.prepare(
+    'INSERT OR REPLACE INTO session_presence(session_id,user_id,last_seen) VALUES(?,?,?)',
+  ).run(s.id, req.userId, now())
   const role = roleFor(s, p, req.userId)
   const piece = db
     .prepare('SELECT id,title,material_id,content_text,source_url FROM pieces WHERE id=?')
@@ -118,6 +125,15 @@ playRouter.get('/play/:sid', auth, (req, res) => {
   const peerId = req.userId === p.user_a ? p.user_b : p.user_a
   const peerName = uname(peerId)
   const canSeeContent = true // 两边都看得到原文
+  // 搭档心跳：最近 8 秒内见过算在线
+  const peerSeen = db
+    .prepare('SELECT last_seen FROM session_presence WHERE session_id=? AND user_id=?')
+    .get(s.id, peerId)?.last_seen
+  const peerLastSeen = peerSeen ? new Date(peerSeen).getTime() : 0
+  const peerOnline = peerLastSeen > 0 && Date.now() - peerLastSeen < PRESENCE_WINDOW_MS
+  const peerLastSeenSec = peerLastSeen
+    ? Math.floor((Date.now() - peerLastSeen) / 1000)
+    : null
 
   if (s.status === 'finished')
     return res.json({
@@ -137,6 +153,8 @@ playRouter.get('/play/:sid', auth, (req, res) => {
       iAmInviter: s.invited_by === req.userId,
       inviterName: uname(s.invited_by),
       peerName,
+      peerOnline,
+      peerLastSeenSec,
     })
 
   // playing
@@ -183,6 +201,8 @@ playRouter.get('/play/:sid', auth, (req, res) => {
       revealed: !!s.cur_revealed,
       reveal,
       peerName,
+      peerOnline,
+      peerLastSeenSec,
     })
   }
 
@@ -210,6 +230,8 @@ playRouter.get('/play/:sid', auth, (req, res) => {
     myAnswered: mine,
     peerAnsweredCount: peerCount,
     peerName,
+    peerOnline,
+    peerLastSeenSec,
   })
 })
 

@@ -118,6 +118,14 @@ CREATE TABLE IF NOT EXISTS skip_requests (
   PRIMARY KEY (partnership_id, piece_id)
 );
 
+-- 对局在线心跳：每次拉 GET /play/:sid 都更新；用来判定"搭档是否离开"
+CREATE TABLE IF NOT EXISTS session_presence (
+  session_id INTEGER NOT NULL,
+  user_id INTEGER NOT NULL,
+  last_seen TEXT NOT NULL,
+  PRIMARY KEY (session_id, user_id)
+);
+
 -- 跨节"快进"申请：批准后中间所有节标 skipped，目标节变 available；扣搭档共享积分
 CREATE TABLE IF NOT EXISTS jump_requests (
   id INTEGER PRIMARY KEY,

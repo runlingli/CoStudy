@@ -90,6 +90,16 @@ export default function Play() {
   const headerLeft = (
     <div className="text-base font-semibold">{st.piece?.title}</div>
   )
+  const offlineBanner =
+    st.status === 'playing' && st.peerOnline === false ? (
+      <div className="mb-3 border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700">
+        ⚠ 搭档已离开
+        {st.peerLastSeenSec != null
+          ? `（上次活跃 ${st.peerLastSeenSec}s 前）`
+          : ''}
+        ——等 TA 回来再继续；要走的话直接点顶部回首页。
+      </div>
+    ) : null
   const headerRight = (
     <span className="text-xs text-neutral-500">
       {st.mode === 'co_choice'
@@ -281,6 +291,7 @@ export default function Play() {
           {headerLeft}
           {headerRight}
         </div>
+        {offlineBanner}
         <div className="mb-3 text-xs text-neutral-500">
           第 {st.curQ + 1} / {st.total} 题
         </div>
@@ -383,6 +394,7 @@ export default function Play() {
         {headerLeft}
         {headerRight}
       </div>
+      {offlineBanner}
       <div className="mb-3 border border-neutral-300 bg-neutral-50 px-3 py-2 text-xs text-neutral-600">
         各自作答同一批题。分差越小评级越高——带着搭档一起对，别一个人 carry。
       </div>
