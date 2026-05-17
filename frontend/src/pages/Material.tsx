@@ -206,6 +206,11 @@ export default function Material() {
                         <span className="ml-2 text-xs text-neutral-400">
                           [{stateLabel(pc.state)}]
                         </span>
+                        {pc.parse_status === 'parsing' && (
+                          <span className="ml-1 text-xs text-amber-700">
+                            · AI 出题中…
+                          </span>
+                        )}
                       </div>
                       <div className="flex shrink-0 gap-2">
                         {locked ? (
@@ -245,14 +250,19 @@ export default function Material() {
                           <>
                             <button
                               onClick={() => setPickFor(open ? null : pc.id)}
-                              className="border border-neutral-800 bg-neutral-800 px-3 py-1 text-white"
+                              disabled={pc.parse_status === 'parsing'}
+                              className="border border-neutral-800 bg-neutral-800 px-3 py-1 text-white disabled:opacity-40"
                               title={
-                                pc.parse_status === 'parsed'
+                                pc.parse_status === 'parsing'
+                                  ? '搭档已经点过，AI 正在出题（约 10–30s），稍等'
+                                  : pc.parse_status === 'parsed'
                                   ? '已出题，直接邀请'
                                   : '首次会让 AI 出题（约 10–30s），然后邀请搭档'
                               }
                             >
-                              {finished
+                              {pc.parse_status === 'parsing'
+                                ? 'AI 出题中…'
+                                : finished
                                 ? '再玩一次'
                                 : pc.parse_status === 'parsed'
                                 ? '邀请对玩'

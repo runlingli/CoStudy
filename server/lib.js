@@ -199,20 +199,53 @@ JSON 结构示例：
   })
 }
 
-// 懒解析：本 piece 第一次被学到时才（按需抓内容 + 深解析出题），返回题目数组
-export async function ensureParsed(piece) {
-  // 链接 piece 还没抓过内容 → 现在抓
-  if (!piece.content_text && piece.source_url) {
-    const text = await fetchSectionText(piece.source_url)
-    if (text) {
-      db.prepare('UPDATE pieces SET content_text=? WHERE id=?').run(
-        text,
-        piece.id,
-      )
-      piece.content_text = text
-    }
+// 等另一边正在跑的解析完成；超时报错让上层 4xx
+async function waitForParsed(pieceId, timeoutMs = 120000) {
+  const start = Date.now()
+  while (Date.now() - start < timeoutMs) {
+    const s = db
+      .prepare('SELECT parse_status FROM pieces WHERE id=?')
+      .get(pieceId)?.parse_status
+    if (s === 'parsed') return
+    if (s !== 'parsing')
+      throw new Error('解析状态异常') // 比如被 reset
+    await new Promise((r) => setTimeout(r, 500))
   }
-  if (piece.parse_status === 'pending') {
+  throw new Error('对方解析超时；请稍后重试')
+}
+
+// 懒解析：本 piece 第一次被学到时才（按需抓内容 + 深解析出题），返回题目数组
+// 并发安全：用 parse_status='parsing' 做原子认领，抢输的一方等结果，不会重复出题
+export async function ensureParsed(piece) {
+  // 链接 piece 还没抓过内容 → 现在抓（只在认领之后做才不重复抓；放后面）
+  if (piece.parse_status === 'parsed') return loadQuestions(piece.id)
+  if (piece.parse_status === 'parsing') {
+    await waitForParsed(piece.id)
+    return loadQuestions(piece.id)
+  }
+  // 尝试原子认领：pending → parsing
+  const claim = db
+    .prepare(
+      "UPDATE pieces SET parse_status='parsing' WHERE id=? AND parse_status='pending'",
+    )
+    .run(piece.id)
+  if (claim.changes !== 1) {
+    // 对方先一步认领；等结果
+    await waitForParsed(piece.id)
+    return loadQuestions(piece.id)
+  }
+  try {
+    // 我认领成功，开始抓内容 + 跑 AI
+    if (!piece.content_text && piece.source_url) {
+      const text = await fetchSectionText(piece.source_url)
+      if (text) {
+        db.prepare('UPDATE pieces SET content_text=? WHERE id=?').run(
+          text,
+          piece.id,
+        )
+        piece.content_text = text
+      }
+    }
     const len = (piece.content_text || '').length
     const count = Math.max(4, Math.min(20, Math.ceil(len / 100)))
     let qs = await generateQuestionsWithClaude(
@@ -234,10 +267,20 @@ export async function ensureParsed(piece) {
     db.prepare("UPDATE pieces SET parse_status='parsed' WHERE id=?").run(
       piece.id,
     )
+  } catch (e) {
+    // 出错时退回 pending，让下次重试不被卡住
+    db.prepare("UPDATE pieces SET parse_status='pending' WHERE id=?").run(
+      piece.id,
+    )
+    throw e
   }
+  return loadQuestions(piece.id)
+}
+
+function loadQuestions(pieceId) {
   return db
     .prepare('SELECT qjson FROM questions WHERE piece_id=? ORDER BY id')
-    .all(piece.id)
+    .all(pieceId)
     .map((r) => JSON.parse(r.qjson))
 }
 
