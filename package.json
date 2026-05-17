@@ -5,6 +5,8 @@
   "scripts": {
     "setup": "npm --prefix frontend install && npm --prefix server install",
     "dev": "node scripts/dev.mjs",
+    "dev:server": "node server/index.js",
+    "dev:web": "npm --prefix frontend run dev",
     "build": "npm --prefix frontend run build",
     "start": "node server/index.js"
   }

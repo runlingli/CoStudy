@@ -36,6 +36,33 @@ npm run dev     # 同时起后端 + 前端，打开终端打印的 http://localh
 > 之前注册/登录报 500，是因为只开了前端、没开后端。用 `npm run dev`
 > 一条命令同时起两个就不会了。局域网用 Vite 打印的 Network 地址。
 
+## 团队协作：两个人同改代码 + 共享一份 DB
+
+数据库是单机 SQLite，多端同时写文件会坏；但**多端的前端可以共用同一台后端**——
+DB 主在一台机器上跑后端，所有人前端 dev 都代理到那台。
+代码用 git 同步，各自 push/pull。
+
+### DB 主（保持开机、跑后端的人）
+
+```bash
+npm run dev:server    # 只起后端，监听 0.0.0.0:3000
+# 拿到你的局域网 IP（例：10.0.0.42）：ipconfig getifaddr en0
+```
+
+### 同事 / 你自己的另一台机器
+
+```bash
+git pull                                         # 同步最新代码
+BACKEND_URL=http://10.0.0.42:3000 npm run dev:web   # 前端 dev，proxy 指向 DB 主
+# 浏览器开 http://localhost:5173（自动走 proxy 到那台后端）
+```
+
+每个人都能 HMR 改前端、跑自己的 Vite，但读写都打到 **同一份 SQLite**，
+所以你们能作为同一对搭档对玩、共享导入的资料。
+
+改后端代码时：DB 主拉新代码并重启 `npm run dev:server`；想本机测后端的人临时跑
+`npm run dev`（连自己 localhost），调好了 push 上去。
+
 ## 已实现的基本功能
 
 - 注册 / 登录（账号存本地 SQLite，密码 scrypt 加盐哈希）
