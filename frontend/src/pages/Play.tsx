@@ -530,22 +530,44 @@ export default function Play() {
     const q = st.question || {}
     const LABELS = ['A', 'B', 'C', 'D']
     const reveal = st.reveal
-    // 谁可以点选项：没人抢答时双方都能点；第一人答错后另一方能点
-    const canAnswer =
-      (!st.buzzUid && !st.revealed) ||
-      (!st.iAmBuzzer && st.buzzWrong && !st.revealed)
-    // 第一人答错的选项索引（用来划掉）
-    const wrongChoice: number | null = st.buzzWrong ? st.firstChoice : null
-    // 状态提示文字
-    let statusMsg: string | null = null
-    if (st.iAmBuzzer && st.buzzWrong && !st.revealed)
+    // 第一人答错的选项索引（题目还没揭晓时，用来划掉）
+    const wrongChoice: number | null =
+      !st.revealed && st.buzzWrong ? (st.firstChoice ?? null) : null
+
+    // 状态提示
+    let statusMsg = '点击任意选项抢答'
+    if (st.revealed) {
+      if (reveal?.firstCorrect)
+        statusMsg = `${reveal.firstUser} 答对 ✓`
+      else if (reveal?.secondCorrect)
+        statusMsg = `${reveal.firstUser} 答错，${reveal.secondUser} 补救成功 ✓`
+      else
+        statusMsg = reveal?.secondUser
+          ? `${reveal.firstUser} 和 ${reveal.secondUser} 都答错了 ✗`
+          : `${reveal?.firstUser ?? ''} 答错，无人补救 ✗`
+    } else if (st.buzzUid && !st.iAmBuzzer && !st.buzzWrong) {
+      statusMsg = `${st.buzzName} 抢答中…`
+    } else if (st.iAmBuzzer && st.buzzWrong) {
       statusMsg = `你答错了，等 ${st.peerName} 补救…`
-    else if (st.buzzUid && !st.iAmBuzzer && !st.buzzWrong && !st.revealed)
-      statusMsg = `${st.buzzName} 抢答了，等结果…`
-    else if (!st.buzzUid && !st.revealed)
-      statusMsg = '点击任意选项抢答'
-    else if (!st.iAmBuzzer && st.buzzWrong && !st.revealed)
-      statusMsg = `${st.buzzName} 答错了，轮到你！`
+    } else if (!st.iAmBuzzer && st.buzzWrong) {
+      statusMsg = `${st.buzzName} 答错了，轮到你补救！`
+    }
+
+    // 每个选项的样式
+    const optionClass = (oi: number): string => {
+      if (st.revealed && reveal) {
+        if (oi === reveal.answer)
+          return 'border-green-500 bg-green-50 text-green-800'
+        const isWrongPick =
+          (oi === reveal.firstChoice && !reveal.firstCorrect) ||
+          (oi === reveal.secondChoice && !reveal.secondCorrect)
+        if (isWrongPick) return 'border-red-300 bg-red-50 text-red-500 line-through'
+        return 'border-neutral-200 text-neutral-400'
+      }
+      if (oi === wrongChoice) return 'border-red-300 bg-red-50 text-red-500 line-through'
+      if (buzzerPending === oi) return 'border-neutral-800 bg-neutral-800 text-white'
+      return 'border-neutral-300 text-neutral-800'
+    }
 
     return (
       <div>
@@ -561,91 +583,53 @@ export default function Play() {
           {sourcePanel}
           <div className="md:col-span-3 space-y-3 border border-neutral-300 p-4 text-sm">
             <div className="text-base font-medium">{q.stem}</div>
-            {statusMsg && (
-              <div className="text-xs text-neutral-500">{statusMsg}</div>
-            )}
+            <div className="text-xs text-neutral-500">{statusMsg}</div>
 
-            {!reveal && (
-              <div className="space-y-2">
-                {(q.options || []).map((o: string, oi: number) => {
-                  const isWrong = oi === wrongChoice
-                  return isWrong ? (
+            <div className="space-y-2">
+              {(q.options || []).map((o: string, oi: number) => {
+                const isStruck = oi === wrongChoice
+                const isRevealed = st.revealed
+                // 已揭晓或是被划掉的选项：用 div 展示
+                if (isRevealed || isStruck) {
+                  return (
                     <div
                       key={oi}
-                      className="w-full border border-red-200 bg-red-50 px-3 py-2 text-left text-red-400 line-through"
+                      className={`w-full border px-3 py-2 text-left ${optionClass(oi)}`}
                     >
+                      {isRevealed && reveal && oi === reveal.answer ? '✓ ' : '　'}
                       <b>{LABELS[oi]}.</b> {o}
                     </div>
-                  ) : (
-                    <button
-                      key={oi}
-                      disabled={!canAnswer || buzzerPending !== null}
-                      onClick={() => submitBuzz(oi)}
-                      className={
-                        'w-full border px-3 py-2 text-left disabled:cursor-not-allowed disabled:opacity-40 ' +
-                        (buzzerPending === oi
-                          ? 'border-neutral-800 bg-neutral-800 text-white'
-                          : 'border-neutral-300 hover:bg-neutral-50')
-                      }
-                    >
-                      <b>{LABELS[oi]}.</b> {o}
-                    </button>
                   )
-                })}
-              </div>
+                }
+                // 未揭晓：可点击按钮
+                return (
+                  <button
+                    key={oi}
+                    disabled={buzzerPending !== null}
+                    onClick={() => submitBuzz(oi)}
+                    className={`w-full border px-3 py-2 text-left hover:opacity-80 disabled:cursor-not-allowed disabled:opacity-50 ${optionClass(oi)}`}
+                  >
+                    　<b>{LABELS[oi]}.</b> {o}
+                  </button>
+                )
+              })}
+            </div>
+
+            {reveal?.explanation && (
+              <p className="text-xs text-neutral-500">{reveal.explanation}</p>
             )}
 
-            {reveal && (
-              <div className="space-y-1">
-                <div className="mb-2 text-xs font-medium">
-                  {reveal.firstCorrect ? (
-                    <span className="text-green-700">{reveal.firstUser} 答对 ✓</span>
-                  ) : reveal.secondCorrect ? (
-                    <span>
-                      <span className="text-red-600">{reveal.firstUser} 答错</span>
-                      {'，'}
-                      <span className="text-green-700">{reveal.secondUser} 补救成功 ✓</span>
-                    </span>
-                  ) : (
-                    <span className="text-red-600">
-                      {reveal.secondUser
-                        ? `${reveal.firstUser} 和 ${reveal.secondUser} 都答错了 ✗`
-                        : `${reveal.firstUser} 答错，无人补救 ✗`}
-                    </span>
-                  )}
-                </div>
-                {reveal.options.map((o: string, oi: number) => (
-                  <div
-                    key={oi}
-                    className={
-                      oi === reveal.answer
-                        ? 'text-green-700'
-                        : (oi === reveal.firstChoice && !reveal.firstCorrect) ||
-                          (oi === reveal.secondChoice && !reveal.secondCorrect)
-                        ? 'text-red-400 line-through'
-                        : 'text-neutral-500'
-                    }
-                  >
-                    {oi === reveal.answer ? '✓ ' : '　'}
-                    <b>{LABELS[oi]}.</b> {o}
-                  </div>
-                ))}
-                {reveal.explanation && (
-                  <p className="pt-1 text-xs text-neutral-500">{reveal.explanation}</p>
-                )}
-                {st.iConfirmedNext ? (
-                  <p className="mt-3 text-xs text-neutral-500">
-                    已确认，等 {st.peerName} 点击…
-                  </p>
-                ) : (
-                  <button
-                    onClick={nextQ}
-                    className="mt-3 border border-neutral-800 bg-neutral-800 px-4 py-2 text-white"
-                  >
-                    {st.curQ + 1 >= st.total ? '结算本关' : '进入下一题'}
-                  </button>
-                )}
-              </div>
+            {st.revealed && (
+              st.iConfirmedNext ? (
+                <p className="text-xs text-neutral-500">已确认，等 {st.peerName} 点击…</p>
+              ) : (
+                <button
+                  onClick={nextQ}
+                  className="w-full border border-neutral-800 bg-neutral-800 px-4 py-2 text-white"
+                >
+                  {st.curQ + 1 >= st.total ? '结算本关' : '进入下一题'}
+                </button>
+              )
             )}
           </div>
         </div>
