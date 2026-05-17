@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   BrowserRouter,
   Routes,
@@ -19,6 +19,78 @@ export interface Me {
   user: { id: number; username: string }
   partnership: { id: number; status: string; invite_code?: string } | null
   partner: { username: string } | null
+}
+
+/* eslint-disable @typescript-eslint/no-explicit-any */
+
+// 全局邀请通知：任意页面都能看到搭档发来的邀请
+function InviteBanner() {
+  const nav = useNavigate()
+  const [incoming, setIncoming] = useState<any[]>([])
+  const dismissedRef = useRef<Set<number>>(new Set())
+
+  const poll = useCallback(() => {
+    api('/invites')
+      .then((d) => setIncoming(d.incoming || []))
+      .catch(() => {})
+  }, [])
+
+  useEffect(() => {
+    poll()
+    const t = setInterval(poll, 3000)
+    return () => clearInterval(t)
+  }, [poll])
+
+  const inv = incoming.find((x) => !dismissedRef.current.has(x.session_id))
+  if (!inv) return null
+  const modeLabel = inv.mode === 'asymmetric_choice' ? '不对称' : '共答'
+  return (
+    <div className="sticky top-0 z-20 border-b border-amber-300 bg-amber-50">
+      <div className="mx-auto flex max-w-6xl items-center justify-between gap-3 px-5 py-2 text-sm">
+        <span>
+          <b>{inv.inviter_name}</b> 邀请你玩「{inv.piece_title}」（{modeLabel}）
+        </span>
+        <div className="flex gap-2">
+          <button
+            onClick={async () => {
+              try {
+                await api(`/play/${inv.session_id}/accept`, {})
+                nav(`/play/${inv.session_id}`)
+              } catch {
+                poll()
+              }
+            }}
+            className="border border-neutral-800 bg-neutral-800 px-3 py-1 text-white"
+          >
+            接受
+          </button>
+          <button
+            onClick={async () => {
+              try {
+                await api(`/play/${inv.session_id}/cancel`, {})
+              } catch {
+                /* ignore */
+              }
+              poll()
+            }}
+            className="border border-neutral-400 px-3 py-1"
+          >
+            拒绝
+          </button>
+          <button
+            onClick={() => {
+              dismissedRef.current.add(inv.session_id)
+              setIncoming([...incoming])
+            }}
+            className="text-xs text-neutral-500 underline"
+            title="本次会话内忽略此邀请"
+          >
+            稍后
+          </button>
+        </div>
+      </div>
+    </div>
+  )
 }
 
 function Shell({ me, reload }: { me: Me; reload: () => void }) {
@@ -44,6 +116,7 @@ function Shell({ me, reload }: { me: Me; reload: () => void }) {
           </button>
         </div>
       </header>
+      <InviteBanner />
       <main className="mx-auto max-w-6xl px-5 py-6">
         <Routes>
           <Route path="/" element={<Home me={me} />} />

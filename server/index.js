@@ -320,6 +320,39 @@ app.post('/api/partner/join', auth, (req, res) => {
   res.json({ ok: true })
 })
 
+// 待处理的对局邀请（全局通知用）：进来的 / 自己发出的
+app.get('/api/invites', auth, (req, res) => {
+  const p = myPartnership(req.userId)
+  if (!p || p.status !== 'active')
+    return res.json({ incoming: [], outgoing: [] })
+  const rows = db
+    .prepare(
+      `SELECT s.id AS session_id, s.mode, s.invited_by, s.piece_id,
+              pc.title AS piece_title, pc.material_id
+         FROM play_sessions s
+         JOIN pieces pc ON pc.id = s.piece_id
+        WHERE s.partnership_id=? AND s.status='invited'
+        ORDER BY s.id DESC`,
+    )
+    .all(p.id)
+  const incoming = []
+  const outgoing = []
+  for (const r of rows) {
+    const item = {
+      session_id: r.session_id,
+      mode: r.mode,
+      piece_title: r.piece_title,
+      material_id: r.material_id,
+      inviter_name: db
+        .prepare('SELECT username FROM users WHERE id=?')
+        .get(r.invited_by)?.username,
+    }
+    if (r.invited_by === req.userId) outgoing.push(item)
+    else incoming.push(item)
+  }
+  res.json({ incoming, outgoing })
+})
+
 app.get('/api/materials', auth, (req, res) => {
   const p = myPartnership(req.userId)
   if (!p || p.status !== 'active') return res.json({ materials: [] })
