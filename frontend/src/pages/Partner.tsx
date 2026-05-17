@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { api, clearToken } from '../api'
 
 export default function Partner({
@@ -8,6 +9,7 @@ export default function Partner({
   reload: () => void
   forced?: boolean
 }) {
+  const nav = useNavigate()
   const [code, setCode] = useState('')
   const [myCode, setMyCode] = useState('')
   const [err, setErr] = useState('')
@@ -28,12 +30,13 @@ export default function Partner({
       api('/me').then((d) => {
         if (d.partner) {
           clearInterval(t)
+          nav('/', { replace: true })
           reload()
         }
       })
     }, 2000)
     return () => clearInterval(t)
-  }, [myCode, reload])
+  }, [myCode, reload, nav])
 
   async function create() {
     setErr('')
@@ -48,6 +51,7 @@ export default function Partner({
     setErr('')
     try {
       await api('/partner/join', { code })
+      nav('/', { replace: true })
       reload()
     } catch (e) {
       setErr((e as Error).message)
