@@ -120,8 +120,9 @@ export default function Material() {
         <p className="mb-1 text-xs text-neutral-500">备注：{mat.user_note}</p>
       )}
       <p className="mb-4 text-xs text-neutral-400">
-        共 {chunks.length} 章 / {pieceCount} 节。点开节就走真题（AI 出，首次 10–30s）；
-        想跳过的可以"提议跳过"，对方同意后自动解锁下一节。
+        共 {chunks.length} 章 / {pieceCount} 节。<b>「AI 出题 + 邀请」</b>
+        首次会让 AI 解析这一节并出题（约 10–30s），然后建邀请等搭档接受；
+        如果跳过这一节，点 <b>「提议跳过」</b>，搭档同意后自动解锁下一节。
       </p>
       {err && <p className="mb-3 text-sm text-red-600">{err}</p>}
 
@@ -152,18 +153,36 @@ export default function Material() {
                           [{stateLabel(pc.state)}]
                         </span>
                       </div>
-                      <div className="shrink-0">
+                      <div className="flex shrink-0 gap-2">
                         {locked ? (
                           <span className="text-xs text-neutral-400">🔒</span>
                         ) : (
-                          <button
-                            onClick={() =>
-                              setPickFor(open ? null : pc.id)
-                            }
-                            className="border border-neutral-400 px-3 py-1"
-                          >
-                            {finished ? '再玩' : '开始'}
-                          </button>
+                          <>
+                            <button
+                              onClick={() => setPickFor(open ? null : pc.id)}
+                              className="border border-neutral-800 bg-neutral-800 px-3 py-1 text-white"
+                              title={
+                                pc.parse_status === 'parsed'
+                                  ? '已出题，直接邀请'
+                                  : '首次会让 AI 出题（约 10–30s），然后邀请搭档'
+                              }
+                            >
+                              {finished
+                                ? '再玩一次'
+                                : pc.parse_status === 'parsed'
+                                ? '邀请对玩'
+                                : 'AI 出题 + 邀请'}
+                            </button>
+                            {!finished && !pc.pending_skip && !pc.pending_invite && (
+                              <button
+                                onClick={() => callPiece(pc.id, 'skip/request')}
+                                className="border border-neutral-400 px-3 py-1 text-neutral-600"
+                                title="跳过这一节（需搭档同意）"
+                              >
+                                提议跳过
+                              </button>
+                            )}
+                          </>
                         )}
                       </div>
                     </div>
@@ -271,11 +290,17 @@ export default function Material() {
                       </div>
                     )}
 
-                    {/* 展开：选玩法 / 提议跳过 */}
+                    {/* 展开：选玩法 */}
                     {open && (
                       <div className="mt-3 space-y-2 border-t border-neutral-200 pt-3">
                         <div className="text-xs text-neutral-500">
-                          发起邀请（搭档要接受才开始）：
+                          选玩法发起邀请（搭档接受才开始）
+                          {pc.parse_status !== 'parsed' && (
+                            <span className="ml-1 text-amber-700">
+                              · 本节还没出题，点下面任意玩法会先让 AI 出题（约 10–30s）
+                            </span>
+                          )}
+                          ：
                         </div>
                         {MODES.map((m) => (
                           <button
@@ -292,16 +317,10 @@ export default function Material() {
                         ))}
                         {launching && (
                           <p className="pt-1 text-xs text-neutral-500">
-                            发起中…首次还会触发 AI 出题（10–30s），下次秒进。
+                            {pc.parse_status === 'parsed'
+                              ? '建立邀请中…'
+                              : 'AI 出题中（10–30s），然后会自动跳到等待页…'}
                           </p>
-                        )}
-                        {!finished && !pc.pending_skip && (
-                          <button
-                            onClick={() => callPiece(pc.id, 'skip/request')}
-                            className="mt-1 text-xs text-neutral-500 underline"
-                          >
-                            或：提议跳过此节（让搭档同意）
-                          </button>
                         )}
                       </div>
                     )}
